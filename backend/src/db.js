@@ -1,87 +1,65 @@
 'use strict';
 
-const path = require('path');
-const knex = require('knex');
+const { MongoClient } = require('mongodb');
 
-const DB_PATH = path.join(__dirname, '..', 'bagcheck.db');
+const MONGODB_URI = process.env.MONGODB_URI ;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME ;
 
-const db = knex({
-  client: 'sqlite3',
-  connection: { filename: DB_PATH },
-  useNullAsDefault: true,
-  pool: { min: 1, max: 1 },
-});
+let client;
+let database;
 
-// Run migrations (create tables if not exist).
-async function migrate() {
-  const hasUsers = await db.schema.hasTable('users');
-  if (!hasUsers) {
-    await db.schema.createTable('users', (t) => {
-      t.increments('id').primary();
-      t.string('name').notNullable();
-      t.string('email').unique().notNullable();
-      t.string('password_hash').notNullable();
-      t.timestamp('created_at').defaultTo(db.fn.now());
-    });
-  }
+async function connect() {
+  client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  database = client.db(MONGODB_DB_NAME);
 
-  const hasUnis = await db.schema.hasTable('universities');
-  if (!hasUnis) {
-    await db.schema.createTable('universities', (t) => {
-      t.increments('id').primary();
-      t.string('name').notNullable();
-      t.string('short_name');
-    });
-  }
+  await Promise.all([
+    database.collection('users').createIndex({ email: 1 }, { unique: true }),
+    database.collection('universities').createIndex({ name: 1 }),
+    database.collection('campuses').createIndex({ university_id: 1, name: 1 }),
+    database.collection('reports').createIndex({ status: 1, moderation_status: 1, created_at: -1 }),
+    database.collection('reports').createIndex({ campus_id: 1, type: 1, status: 1, moderation_status: 1 }),
+    database.collection('matches').createIndex({ report_a_id: 1, report_b_id: 1 }),
+  ]);
 
-  const hasCampuses = await db.schema.hasTable('campuses');
-  if (!hasCampuses) {
-    await db.schema.createTable('campuses', (t) => {
-      t.increments('id').primary();
-      t.integer('university_id').references('id').inTable('universities');
-      t.string('name').notNullable();
-      t.string('city');
-    });
-  }
-
-  const hasReports = await db.schema.hasTable('reports');
-  if (!hasReports) {
-    await db.schema.createTable('reports', (t) => {
-      t.increments('id').primary();
-      t.integer('user_id').references('id').inTable('users');
-      t.enu('type', ['Lost', 'Found']).notNullable();
-      t.string('title').notNullable();
-      t.text('description').notNullable();
-      t.string('category').defaultTo('General');
-      t.integer('university_id').references('id').inTable('universities');
-      t.integer('campus_id').references('id').inTable('campuses');
-      t.string('location');
-      t.string('event_date');
-      t.string('photo_url');
-      t.string('status').defaultTo('Active');
-      t.string('moderation_status').defaultTo('Pending');
-      t.string('contact_email');
-      t.timestamp('created_at').defaultTo(db.fn.now());
-    });
-  }
-
-  const hasMatches = await db.schema.hasTable('matches');
-  if (!hasMatches) {
-    await db.schema.createTable('matches', (t) => {
-      t.increments('id').primary();
-      t.integer('report_a_id').references('id').inTable('reports');
-      t.integer('report_b_id').references('id').inTable('reports');
-      t.float('score');
-      t.string('status').defaultTo('Suggested');
-      t.timestamp('created_at').defaultTo(db.fn.now());
-    });
-  }
+  return database;
 }
 
-// Consumers such as the HTTP server and seed script can await this promise
-// before issuing queries. This avoids a startup race on a fresh database.
-const ready = migrate();
-ready.catch((err) => console.error('Database migration failed:', err));
+const ready = connect().catch((err) => {
+  console.error('MongoDB connection failed:', err.message);
+  throw err;
+});
 
-module.exports = db;
-module.exports.ready = ready;
+function getDb() {
+  if (!database) throw new Error('MongoDB is not connected yet');
+  return database;
+}
+
+function collections() {
+  const db = getDb();
+  return {
+    users: db.collection('users'),
+    universities: db.collection('universities'),
+    campuses: db.collection('campuses'),
+    reports: db.collection('reports'),
+    matches: db.collection('matches'),
+    counters: db.collection('counters'),
+  };
+}
+
+async function nextId(sequence) {
+  const { counters } = collections();
+  const result = await counters.findOneAndUpdate(
+    { _id: sequence },
+    { $inc: { value: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  );
+  const document = result && (result.value || result);
+  return document.value;
+}
+
+async function close() {
+  if (client) await client.close();
+}
+
+module.exports = { ready, collections, nextId, close, MONGODB_URI, MONGODB_DB_NAME };

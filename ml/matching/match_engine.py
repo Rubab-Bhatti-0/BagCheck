@@ -1,7 +1,12 @@
-import sqlite3, os
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+from pymongo import MongoClient
 from .embed import embed, cosine_similarity
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'backend', 'bagcheck.db')
+load_dotenv(Path(__file__).resolve().parents[2] / 'backend' / '.env')
+MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://127.0.0.1:27017')
+MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'bagcheck')
 THRESHOLD = 0.45
 
 
@@ -12,36 +17,37 @@ def find_matches(report_id: int, title: str, description: str, category: str, ca
     opposite_type = 'Found' if report_type == 'Lost' else 'Lost'
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, title, description, category, campus_id, type, location, event_date, photo_url
-            FROM reports
-            WHERE type = ? AND status = 'Active' AND moderation_status = 'Approved'
-            AND campus_id = ? AND id != ?
-            LIMIT 50
-        """, (opposite_type, campus_id, report_id or -1))
-        candidates = cur.fetchall()
-        conn.close()
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
+        reports = client[MONGODB_DB_NAME]['reports']
+        candidates = list(reports.find({
+            'type': opposite_type,
+            'status': 'Active',
+            'moderation_status': 'Approved',
+            'campus_id': campus_id,
+            'id': {'$ne': report_id or -1},
+        }, {
+            '_id': 0, 'id': 1, 'title': 1, 'description': 1, 'category': 1,
+            'campus_id': 1, 'type': 1, 'location': 1, 'event_date': 1, 'photo_url': 1,
+        }).limit(50))
+        client.close()
     except Exception as e:
         print(f"DB error: {e}")
         return []
 
     results = []
     for row in candidates:
-        candidate_text = f"{row['title']}. {row['description']}. {row['category']}"
+        candidate_text = f"{row.get('title', '')}. {row.get('description', '')}. {row.get('category', '')}"
         candidate_vec = embed(candidate_text)
         score = cosine_similarity(query_vec, candidate_vec)
         if score >= THRESHOLD:
             results.append({
-                "report_id": row['id'],
-                "title": row['title'],
-                "description": row['description'],
-                "type": row['type'],
-                "location": row['location'],
-                "event_date": row['event_date'],
-                "photo_url": row['photo_url'],
+                "report_id": row.get('id'),
+                "title": row.get('title'),
+                "description": row.get('description'),
+                "type": row.get('type'),
+                "location": row.get('location'),
+                "event_date": row.get('event_date'),
+                "photo_url": row.get('photo_url'),
                 "score": round(score * 100, 1)
             })
 

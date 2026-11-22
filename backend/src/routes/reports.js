@@ -1,32 +1,30 @@
 'use strict';
 
 const express = require('express');
-const router  = express.Router();
-const fetch   = require('node-fetch');
-const db      = require('../db');
+const router = express.Router();
+const fetch = require('node-fetch');
+const db = require('../db');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
-const upload  = require('../middleware/upload');
+const upload = require('../middleware/upload');
+const { uploadImage } = require('../services/cloudinary');
 
 const ML_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
 async function callML(endpoint, body) {
-  const res = await fetch(`${ML_URL}${endpoint}`, {
-    method:  'POST',
+  const response = await fetch(`${ML_URL}${endpoint}`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`ML responded ${res.status}`);
-  return res.json();
+  if (!response.ok) throw new Error(`ML responded ${response.status}`);
+  return response.json();
 }
 
 async function sendRejectionEmail(to, title) {
   if (!to || !process.env.RESEND_API_KEY || !process.env.FROM_EMAIL) return;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: process.env.FROM_EMAIL,
       to: [to],
@@ -37,213 +35,201 @@ async function sendRejectionEmail(to, title) {
   if (!response.ok) throw new Error(`Email provider responded ${response.status}`);
 }
 
-// ── GET /api/reports ────────────────────────────────────────────────────────
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function toOptionalInt(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+async function decorateReport(report) {
+  if (!report) return null;
+  const { universities, campuses, users } = db.collections();
+  const [university, campus, user] = await Promise.all([
+    report.university_id ? universities.findOne({ id: report.university_id }) : null,
+    report.campus_id ? campuses.findOne({ id: report.campus_id }) : null,
+    report.user_id ? users.findOne({ id: report.user_id }) : null,
+  ]);
+  return {
+    ...report,
+    university_name: university?.name || null,
+    university_short_name: university?.short_name || null,
+    campus_name: campus?.name || null,
+    user_name: user?.name || null,
+  };
+}
+
+async function getMatchesForReport(reportId) {
+  const { matches } = db.collections();
+  return matches.find({
+    $or: [{ report_a_id: reportId }, { report_b_id: reportId }],
+    status: { $ne: 'Dismissed' },
+  }).sort({ score: -1 }).toArray();
+}
+
+// Live text check used by the first step of the report form. The final POST
+// repeats moderation so this endpoint is only an early user-facing signal.
+router.post('/check-content', requireAuth, async (req, res) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const description = String(req.body.description || '').trim();
+    if (!title || !description) {
+      return res.status(400).json({ error: 'title and description are required' });
+    }
+    try {
+      const result = await callML('/api/moderate', { title, description });
+      return res.json({ ...result, available: true });
+    } catch (error) {
+      console.warn('Live moderation unavailable:', error.message);
+      return res.json({ relevant: null, confidence: null, reason: 'service_unavailable', available: false });
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { type, university_id, campus_id, category, keyword, dateRange, status, page = 1, limit = 20 } = req.query;
+    const { reports } = db.collections();
+    const { type, university_id, campus_id, category, keyword, dateRange, status } = req.query;
+    const pageNum = Math.max(1, Number.parseInt(req.query.page || '1', 10));
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit || '20', 10)));
+    const filter = {};
 
-    let q = db('reports as r')
-      .leftJoin('universities as u', 'u.id', 'r.university_id')
-      .leftJoin('campuses as c',      'c.id', 'r.campus_id')
-      .leftJoin('users as usr',       'usr.id', 'r.user_id')
-      .select(
-        'r.*',
-        'u.name as university_name', 'u.short_name as university_short_name',
-        'c.name as campus_name',
-        'usr.name as user_name'
-      );
-
-    // Public: only approved active items
     if (!req.user) {
-      q = q.where('r.moderation_status', 'Approved').where('r.status', 'Active');
+      filter.moderation_status = 'Approved';
+      filter.status = 'Active';
     } else {
-      q = q.whereNot('r.status', 'Deleted');
+      filter.status = { $ne: 'Deleted' };
+      if (status) filter.status = status;
     }
-
-    if (type)          q = q.where('r.type', type);
-    if (university_id) q = q.where('r.university_id', parseInt(university_id, 10));
-    if (campus_id)     q = q.where('r.campus_id',     parseInt(campus_id, 10));
-    if (category)      q = q.where('r.category', category);
-    if (status && req.user) q = q.where('r.status', status);
+    if (type) filter.type = type;
+    if (university_id) filter.university_id = toOptionalInt(university_id);
+    if (campus_id) filter.campus_id = toOptionalInt(campus_id);
+    if (category) filter.category = category;
     if (keyword) {
-      q = q.where((builder) => {
-        builder.whereILike('r.title', `%${keyword}%`).orWhereILike('r.description', `%${keyword}%`);
-      });
+      const regex = new RegExp(escapeRegex(keyword), 'i');
+      filter.$or = [{ title: regex }, { description: regex }];
     }
     if (dateRange && dateRange !== 'all') {
       const days = dateRange === '7d' ? 7 : 30;
-      q = q.whereRaw(`r.created_at >= datetime('now', '-${days} days')`);
+      filter.created_at = { $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
     }
 
-    const countQ  = q.clone().clearSelect().count('r.id as total').first();
-    const countRow = await countQ;
-    const total    = parseInt(countRow.total, 10);
+    const total = await reports.countDocuments(filter);
+    const rows = await reports.find(filter).sort({ created_at: -1 }).skip((pageNum - 1) * limit).limit(limit).toArray();
+    const data = await Promise.all(rows.map(decorateReport));
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const lim     = Math.min(50, Math.max(1, parseInt(limit, 10)));
-    const rows    = await q.orderBy('r.created_at', 'desc').limit(lim).offset((pageNum - 1) * lim);
-
-    return res.json({
-      data:       rows,
-      pagination: { total, page: pageNum, limit: lim, pages: Math.ceil(total / lim) },
-    });
+    return res.json({ data, pagination: { total, page: pageNum, limit, pages: Math.ceil(total / limit) } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ── POST /api/reports ───────────────────────────────────────────────────────
 router.post('/', requireAuth, upload.single('photo'), async (req, res) => {
   try {
+    const { reports, matches } = db.collections();
     const { type, title, description, category, university_id, campus_id, location, event_date, contact_email } = req.body;
+    if (!type || !title || !description) return res.status(400).json({ error: 'type, title and description are required' });
+    if (!['Lost', 'Found'].includes(type)) return res.status(400).json({ error: "type must be 'Lost' or 'Found'" });
 
-    if (!type || !title || !description)
-      return res.status(400).json({ error: 'type, title and description are required' });
-    if (!['Lost', 'Found'].includes(type))
-      return res.status(400).json({ error: "type must be 'Lost' or 'Found'" });
-
-    const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
-
-    const [reportId] = await db('reports').insert({
-      user_id:           req.user.id,
+    const photoUrl = req.file ? await uploadImage(req.file) : null;
+    const reportId = await db.nextId('reports');
+    const reportDocument = {
+      id: reportId,
+      user_id: req.user.id,
       type,
-      title,
-      description,
-      category:          category || 'General',
-      university_id:     university_id ? parseInt(university_id, 10) : null,
-      campus_id:         campus_id    ? parseInt(campus_id,    10) : null,
-      location:          location     || null,
-      event_date:        event_date   || null,
-      photo_url,
-      contact_email:     contact_email || req.user.email,
-      status:            'Active',
+      title: String(title).trim(),
+      description: String(description).trim(),
+      category: category || 'General',
+      university_id: toOptionalInt(university_id),
+      campus_id: toOptionalInt(campus_id),
+      location: location || null,
+      event_date: event_date || null,
+      photo_url: photoUrl,
+      contact_email: contact_email || req.user.email,
+      status: 'Active',
       moderation_status: 'Pending',
-    });
+      created_at: new Date(),
+    };
+    await reports.insertOne(reportDocument);
 
-    let moderated  = false;
-    let matchList  = [];
-
-    // ── ML Moderation ──────────────────────────────────────────────────────
+    let moderated = false;
+    let matchList = [];
     try {
       const modResult = await callML('/api/moderate', { title, description });
       moderated = true;
-
       if (modResult.relevant === false) {
-        await db('reports').where({ id: reportId }).update({ moderation_status: 'Rejected', status: 'Deleted' });
-        sendRejectionEmail(contact_email || req.user.email, title).catch((emailErr) => {
-          console.warn('Rejection email unavailable:', emailErr.message);
-        });
+        await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Rejected', status: 'Deleted' } });
+        sendRejectionEmail(contact_email || req.user.email, title).catch((emailErr) => console.warn('Rejection email unavailable:', emailErr.message));
       } else {
-        await db('reports').where({ id: reportId }).update({ moderation_status: 'Approved' });
-
-        // ── ML Matching ──────────────────────────────────────────────────
+        await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Approved' } });
         try {
-          const matchResult = await callML('/api/match', {
-            report_id: reportId,
-            title,
-            description,
-            category:  category || 'General',
-            campus_id: campus_id ? parseInt(campus_id, 10) : -1,
-            type,
-          });
-
+          const matchResult = await callML('/api/match', { report_id: reportId, title, description, category: category || 'General', campus_id: toOptionalInt(campus_id) ?? -1, type });
           const matched = Array.isArray(matchResult.matches) ? matchResult.matches : [];
-          for (const m of matched) {
-            if (m.report_id && m.score !== undefined) {
-              await db('matches').insert({ report_a_id: reportId, report_b_id: m.report_id, score: m.score });
-              matchList.push(m);
+          for (const match of matched) {
+            if (match.report_id && match.score !== undefined) {
+              const matchId = await db.nextId('matches');
+              await matches.insertOne({ id: matchId, report_a_id: reportId, report_b_id: match.report_id, score: match.score, status: 'Suggested', created_at: new Date() });
+              matchList.push(match);
             }
           }
-        } catch (mErr) {
-          console.warn('ML match unavailable:', mErr.message);
+        } catch (matchError) {
+          console.warn('ML match unavailable:', matchError.message);
         }
       }
-    } catch (modErr) {
-      // ML down — approve by default
-      console.warn('ML moderation unavailable:', modErr.message);
-      await db('reports').where({ id: reportId }).update({ moderation_status: 'Approved' });
+    } catch (moderationError) {
+      console.warn('ML moderation unavailable:', moderationError.message);
+      await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Approved' } });
     }
 
-    const report = await db('reports').where({ id: reportId }).first();
-    return res.status(201).json({ report, matches: matchList, moderated });
+    return res.status(201).json({ report: await reports.findOne({ id: reportId }), matches: matchList, moderated });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ── GET /api/reports/my/list ─────────────────────────────────────────────────
-// This must be declared before /:id, otherwise Express treats "my" as an ID.
 router.get('/my/list', requireAuth, async (req, res) => {
   try {
-    const rows = await db('reports as r')
-      .leftJoin('universities as u', 'u.id', 'r.university_id')
-      .leftJoin('campuses as c',      'c.id', 'r.campus_id')
-      .select('r.*', 'u.name as university_name', 'c.name as campus_name')
-      .where('r.user_id', req.user.id)
-      .whereNot('r.status', 'Deleted')
-      .orderBy('r.created_at', 'desc');
-    return res.json(rows);
+    const { reports } = db.collections();
+    const rows = await reports.find({ user_id: req.user.id, status: { $ne: 'Deleted' } }).sort({ created_at: -1 }).toArray();
+    return res.json(await Promise.all(rows.map(decorateReport)));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ── GET /api/reports/:id ────────────────────────────────────────────────────
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-
-    const report = await db('reports as r')
-      .leftJoin('universities as u', 'u.id', 'r.university_id')
-      .leftJoin('campuses as c',      'c.id', 'r.campus_id')
-      .leftJoin('users as usr',       'usr.id', 'r.user_id')
-      .select('r.*', 'u.name as university_name', 'c.name as campus_name', 'usr.name as user_name')
-      .where('r.id', id)
-      .first();
-
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+    const { reports } = db.collections();
+    const report = await reports.findOne({ id });
     if (!report) return res.status(404).json({ error: 'Report not found' });
-
-    if ((report.status === 'Deleted' || report.moderation_status === 'Rejected') &&
-        (!req.user || req.user.id !== report.user_id)) {
-      return res.status(404).json({ error: 'Report not found' });
-    }
-
-    const matches = await db('matches as m')
-      .where(function () {
-        this.where('m.report_a_id', id).orWhere('m.report_b_id', id);
-      })
-      .whereNot('m.status', 'Dismissed')
-      .orderBy('m.score', 'desc')
-      .select(
-        'm.id', 'm.score', 'm.status',
-        db.raw('CASE WHEN m.report_a_id = ? THEN m.report_b_id ELSE m.report_a_id END AS matched_report_id', [id])
-      );
-
-    return res.json({ ...report, matches });
+    if ((report.status === 'Deleted' || report.moderation_status === 'Rejected') && (!req.user || req.user.id !== report.user_id)) return res.status(404).json({ error: 'Report not found' });
+    return res.json({ ...await decorateReport(report), matches: await getMatchesForReport(id) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ── PATCH /api/reports/:id/status ──────────────────────────────────────────
 router.patch('/:id/status', requireAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-
-    const report = await db('reports').where({ id }).first();
+    const id = Number(req.params.id);
+    const { reports } = db.collections();
+    const report = await reports.findOne({ id });
     if (!report) return res.status(404).json({ error: 'Report not found' });
     if (report.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-
-    const { status } = req.body;
-    if (status !== 'Resolved') return res.status(400).json({ error: "status must be 'Resolved'" });
-
-    await db('reports').where({ id }).update({ status: 'Resolved' });
+    if (req.body.status !== 'Resolved') return res.status(400).json({ error: "status must be 'Resolved'" });
+    await reports.updateOne({ id }, { $set: { status: 'Resolved' } });
     return res.json({ id, status: 'Resolved' });
   } catch (err) {
     console.error(err);
@@ -251,17 +237,14 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   }
 });
 
-// ── DELETE /api/reports/:id ─────────────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-
-    const report = await db('reports').where({ id }).first();
+    const id = Number(req.params.id);
+    const { reports } = db.collections();
+    const report = await reports.findOne({ id });
     if (!report) return res.status(404).json({ error: 'Report not found' });
     if (report.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-
-    await db('reports').where({ id }).update({ status: 'Deleted' });
+    await reports.updateOne({ id }, { $set: { status: 'Deleted' } });
     return res.json({ id, status: 'Deleted' });
   } catch (err) {
     console.error(err);

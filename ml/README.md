@@ -167,12 +167,12 @@ ml/
 - **Model:** `sentence-transformers/all-MiniLM-L6-v2` (22M parameters, ~90 MB download)
 - **Similarity:** Cosine similarity on 384-dimensional embeddings
 - **Threshold:** 0.45 cosine similarity (~45%)
-- **Database:** Reads from `../backend/bagcheck.db` (SQLite)
+- **Database:** Reads the MongoDB `reports` collection using `MONGODB_URI` and `MONGODB_DB_NAME`
 
 ---
 
 ## Notes
 
 - Run all commands from the `ml/` directory.
-- The backend must be running (and `bagcheck.db` populated) for `/api/match` to return results. It gracefully returns an empty list if the DB is unavailable.
+- The backend must be running and the MongoDB `reports` collection populated for `/api/match` to return results. It gracefully returns an empty list if the DB is unavailable.
 - The sentence-transformers model is downloaded on first use and cached by Hugging Face locally.
