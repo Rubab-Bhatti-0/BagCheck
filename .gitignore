@@ -1,0 +1,38 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and builds
+node_modules/
+dist/
+dist-ssr/
+build/
+coverage/
+*.local
+
+# Local runtime data
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# Python / ML
+__pycache__/
+*.pyc
+venv/
+.venv/
+.ipynb_checkpoints/
+ml/moderate/model.pkl
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
