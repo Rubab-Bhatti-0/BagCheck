@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, ChevronDown, Info, Loader2, Sparkles, Upload, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAuth } from '../context/AuthContext'
-import client from '../api/client'
+import { useAuth } from '../context/auth'
+import client, { apiErrorMessage } from '../api/client'
 import MatchCard from '../components/MatchCard'
+import { REPORT_CATEGORIES } from '../data/reportCategories'
 
 interface University { id: number; name: string; short_name: string; campuses: { id: number; name: string; city: string }[] }
 interface Match { report_id: number; title: string; description: string; type: string; location: string; event_date: string; score: number }
 type ContentStatus = 'idle' | 'checking' | 'relevant' | 'irrelevant' | 'unavailable'
-
-const CATEGORIES = ['General', 'Electronics', 'Wallets & Keys', 'Student Cards & IDs', 'Books & Notes', 'Clothing', 'Bags', 'Accessories']
 
 export default function ReportPage() {
   const { user, loading: authLoading } = useAuth()
@@ -30,7 +29,7 @@ export default function ReportPage() {
   const [location, setLocation] = useState('')
   const [eventDate, setEventDate] = useState('')
   const [eventTime, setEventTime] = useState('')
-  const [contactEmail, setContactEmail] = useState('')
+  const [editedContactEmail, setContactEmail] = useState<string | null>(null)
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -39,6 +38,7 @@ export default function ReportPage() {
   const [reportId, setReportId] = useState<number | null>(null)
   const [matchChecked, setMatchChecked] = useState(false)
   const [checkingMatches, setCheckingMatches] = useState(false)
+  const contactEmail = editedContactEmail ?? user?.email ?? ''
 
   const campuses = useMemo(() => {
     const uni = universities.find((u) => String(u.id) === uniId)
@@ -52,10 +52,6 @@ export default function ReportPage() {
   useEffect(() => {
     if (!authLoading && !user) navigate('/login')
   }, [user, authLoading, navigate])
-
-  useEffect(() => {
-    if (user) setContactEmail(user.email)
-  }, [user])
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] || null
@@ -100,10 +96,10 @@ export default function ReportPage() {
       }
       setContentStatus('relevant')
       setStep(2)
-    } catch (err: any) {
+    } catch (err) {
       setContentStatus('unavailable')
       setContentFeedback('The relevance check failed. Please try again.')
-      toast.error(err.response?.data?.error || 'The content check failed. Please try again.')
+      toast.error(apiErrorMessage(err, 'The content check failed. Please try again.'))
     }
   }
 
@@ -141,8 +137,8 @@ export default function ReportPage() {
       setMatches([])
       setSubmitted(true)
       toast.success('Your report has been posted. You can now check for matches.')
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to post report')
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to post report'))
     } finally {
       setSubmitting(false)
     }
@@ -158,8 +154,8 @@ export default function ReportPage() {
       setMatchChecked(true)
       if (found.length > 0) toast.success(`${found.length} possible match${found.length > 1 ? 'es' : ''} found`)
       else toast.success('No matching item found yet, so your report has been posted')
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Matching is temporarily unavailable. Your report is still posted.')
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Matching is temporarily unavailable. Your report is still posted.'))
     } finally {
       setCheckingMatches(false)
     }
@@ -270,7 +266,7 @@ export default function ReportPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Category</label><div className="relative"><select value={category} onChange={(e) => setCategory(e.target.value)} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none">{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Category</label><div className="relative"><select value={category} onChange={(e) => setCategory(e.target.value)} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none">{REPORT_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
               <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Date of Incident <span className="text-[#ef4444]">*</span></label><input required type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
             </div>
 

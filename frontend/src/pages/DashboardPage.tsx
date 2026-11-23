@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, CheckCircle, Trash2, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth'
 import client from '../api/client'
 
 interface Report { id: number; type: 'Lost'|'Found'; title: string; description: string; category: string; campus_name: string; university_name: string; event_date: string; created_at: string; status: string; moderation_status: string }

@@ -28,7 +28,10 @@ async function connect() {
   // Migrate the original non-unique index created by earlier BagCheck builds.
   // MongoDB cannot change an index's unique option in place, and reusing its
   // generated name causes IndexKeySpecsConflict during application startup.
-  const existingIndexes = await matchesCollection.listIndexes().toArray();
+  const existingIndexes = await matchesCollection.listIndexes().toArray().catch((error) => {
+    if (error.code === 26) return []; // A fresh database has no matches collection yet.
+    throw error;
+  });
   const pairIndex = existingIndexes.find((index) => (
     index.key?.report_a_id === 1 && index.key?.report_b_id === 1
   ));
@@ -69,12 +72,11 @@ function collections() {
 
 async function nextId(sequence) {
   const { counters } = collections();
-  const result = await counters.findOneAndUpdate(
+  const document = await counters.findOneAndUpdate(
     { _id: sequence },
     { $inc: { value: 1 } },
-    { upsert: true, returnDocument: 'after' },
+    { upsert: true, returnDocument: 'after', includeResultMetadata: false },
   );
-  const document = result && (result.value || result);
   return document.value;
 }
 

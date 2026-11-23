@@ -8,13 +8,14 @@ const { requireAuth, optionalAuth } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { uploadImage } = require('../services/cloudinary');
 
-const ML_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_URL = (process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 
 async function callML(endpoint, body) {
   const response = await fetch(`${ML_URL}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(endpoint === '/api/match' ? 60_000 : 5_000),
   });
   if (!response.ok) throw new Error(`ML responded ${response.status}`);
   return response.json();
@@ -40,9 +41,9 @@ function escapeRegex(value) {
 }
 
 function toOptionalInt(value) {
-  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
   const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function decorateReport(report, includePrivate = false) {
@@ -104,11 +105,16 @@ async function findAndPersistMatches(report) {
   const suggestions = Array.isArray(result.matches) ? result.matches : [];
   const persisted = [];
   for (const suggestion of suggestions) {
-    if (!suggestion.report_id || suggestion.score === undefined) continue;
-    const existing = await matches.findOne({ report_a_id: report.id, report_b_id: suggestion.report_id });
+    if (!Number.isInteger(suggestion.report_id) || !Number.isFinite(suggestion.score)) continue;
+    const pair = { report_a_id: Math.min(report.id, suggestion.report_id), report_b_id: Math.max(report.id, suggestion.report_id) };
+    const reverse = { report_a_id: pair.report_b_id, report_b_id: pair.report_a_id };
+    const existing = await matches.findOne({ $or: [pair, reverse] });
+    if (existing?.status === 'Dismissed') continue;
     if (!existing) {
       const matchId = await db.nextId('matches');
-      await matches.insertOne({ id: matchId, report_a_id: report.id, report_b_id: suggestion.report_id, score: suggestion.score, status: 'Suggested', created_at: new Date() });
+      await matches.updateOne(pair, {
+        $setOnInsert: { id: matchId, score: suggestion.score, status: 'Suggested', created_at: new Date() },
+      }, { upsert: true });
     }
     persisted.push(suggestion);
   }
@@ -146,35 +152,39 @@ router.get('/', optionalAuth, async (req, res) => {
   try {
     const { reports } = db.collections();
     const { type, university_id, campus_id, category, keyword, dateRange, status } = req.query;
-    const pageNum = Math.max(1, Number.parseInt(req.query.page || '1', 10));
-    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit || '20', 10)));
-    const filter = {};
-
-    if (!req.user) {
-      filter.moderation_status = 'Approved';
-      filter.status = 'Active';
-    } else {
-      filter.status = { $ne: 'Deleted' };
-      if (status) filter.status = status;
+    const pageNum = Math.max(1, toOptionalInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, toOptionalInt(req.query.limit) || 20));
+    const filter = {
+      moderation_status: 'Approved',
+      status: req.user && status === 'Resolved' ? 'Resolved' : 'Active',
+    };
+    if (type === 'Lost' || type === 'Found') filter.type = type;
+    if (university_id !== undefined) {
+      filter.university_id = toOptionalInt(university_id);
+      if (!filter.university_id) return res.status(400).json({ error: 'Invalid university ID' });
     }
-    if (type) filter.type = type;
-    if (university_id) filter.university_id = toOptionalInt(university_id);
-    if (campus_id) filter.campus_id = toOptionalInt(campus_id);
-    if (category) filter.category = category;
-    if (keyword) {
-      const regex = new RegExp(escapeRegex(keyword), 'i');
-      filter.$or = [{ title: regex }, { description: regex }];
+    if (campus_id !== undefined) {
+      filter.campus_id = toOptionalInt(campus_id);
+      if (!filter.campus_id) return res.status(400).json({ error: 'Invalid campus ID' });
     }
-    if (dateRange && dateRange !== 'all') {
+    if (typeof category === 'string' && category) filter.category = category;
+    if (typeof keyword === 'string' && keyword.trim()) {
+      const regex = new RegExp(escapeRegex(keyword.trim()), 'i');
+      filter.$or = [{ title: regex }, { description: regex }, { location: regex }];
+    }
+    if (dateRange === '7d' || dateRange === '30d') {
       const days = dateRange === '7d' ? 7 : 30;
       filter.created_at = { $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
     }
 
     const total = await reports.countDocuments(filter);
-    const rows = await reports.find(filter).sort({ created_at: -1 }).skip((pageNum - 1) * limit).limit(limit).toArray();
+    const pages = Math.ceil(total / limit);
+    const rows = pageNum <= pages
+      ? await reports.find(filter).sort({ created_at: -1, _id: -1 }).skip((pageNum - 1) * limit).limit(limit).toArray()
+      : [];
     const data = await Promise.all(rows.map((row) => decorateReport(row, false)));
 
-    return res.json({ data, pagination: { total, page: pageNum, limit, pages: Math.ceil(total / limit) } });
+    return res.json({ data, pagination: { total, page: pageNum, limit, pages } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
@@ -183,55 +193,58 @@ router.get('/', optionalAuth, async (req, res) => {
 
 router.post('/', requireAuth, upload.single('photo'), async (req, res) => {
   try {
-    const { reports } = db.collections();
-    const { type, title, description, category, university_id, campus_id, location, event_date, event_time, contact_email } = req.body;
+    const { reports, campuses } = db.collections();
+    const { type, category, university_id, campus_id, location, event_date, event_time, contact_email } = req.body;
+    const title = String(req.body.title || '').trim();
+    const description = String(req.body.description || '').trim();
     if (!type || !title || !description) return res.status(400).json({ error: 'type, title and description are required' });
     if (!['Lost', 'Found'].includes(type)) return res.status(400).json({ error: "type must be 'Lost' or 'Found'" });
     if (!university_id || !campus_id || !String(location || '').trim() || !event_date || !event_time || !String(contact_email || '').trim()) {
       return res.status(400).json({ error: 'university, campus, date, time, location, and contact email are required' });
     }
+    const universityId = toOptionalInt(university_id);
+    const campusId = toOptionalInt(campus_id);
+    if (!universityId || !campusId || !await campuses.findOne({ id: campusId, university_id: universityId })) {
+      return res.status(400).json({ error: 'Select a campus that belongs to the selected university' });
+    }
 
-    const photoUrl = req.file ? await uploadImage(req.file) : null;
+    let approved;
+    try {
+      const result = await callML('/api/moderate', { title, description });
+      if (typeof result.relevant !== 'boolean') throw new Error('ML moderation returned no decision');
+      approved = result.relevant;
+    } catch (error) {
+      console.warn('ML moderation unavailable:', error.message);
+      return res.status(503).json({ error: 'Moderation service is unavailable. Please try again shortly.' });
+    }
+
+    const photoUrl = approved && req.file ? await uploadImage(req.file) : null;
     const reportId = await db.nextId('reports');
     const reportDocument = {
       id: reportId,
       user_id: req.user.id,
       type,
-      title: String(title).trim(),
-      description: String(description).trim(),
+      title,
+      description,
       category: category || 'General',
-      university_id: toOptionalInt(university_id),
-      campus_id: toOptionalInt(campus_id),
+      university_id: universityId,
+      campus_id: campusId,
       location: location || null,
       event_date: event_date || null,
       event_time: event_time || null,
       photo_url: photoUrl,
       contact_email: contact_email || req.user.email,
-      status: 'Active',
-      moderation_status: 'Pending',
+      status: approved ? 'Active' : 'Deleted',
+      moderation_status: approved ? 'Approved' : 'Rejected',
       created_at: new Date(),
     };
     await reports.insertOne(reportDocument);
 
-    let moderated = false;
-    try {
-      const modResult = await callML('/api/moderate', { title, description });
-      moderated = true;
-      if (modResult.relevant === false) {
-        await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Rejected', status: 'Deleted' } });
-        sendRejectionEmail(contact_email || req.user.email, title).catch((emailErr) => console.warn('Rejection email unavailable:', emailErr.message));
-      } else if (modResult.relevant === true) {
-        await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Approved' } });
-      } else {
-        throw new Error('ML moderation returned no decision');
-      }
-    } catch (moderationError) {
-      console.warn('ML moderation unavailable:', moderationError.message);
-      await reports.updateOne({ id: reportId }, { $set: { moderation_status: 'Pending' } });
-      return res.status(503).json({ error: 'Moderation service is unavailable. Your report was not published; please try again shortly.' });
+    if (!approved) {
+      sendRejectionEmail(contact_email || req.user.email, title).catch((error) => console.warn('Rejection email unavailable:', error.message));
     }
 
-    return res.status(201).json({ report: await reports.findOne({ id: reportId }), matches: [], moderated });
+    return res.status(201).json({ report: reportDocument, matches: [], moderated: true });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
@@ -271,7 +284,9 @@ router.get('/:id', optionalAuth, async (req, res) => {
     const { reports } = db.collections();
     const report = await reports.findOne({ id });
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    if ((report.status === 'Deleted' || report.moderation_status === 'Rejected') && (!req.user || req.user.id !== report.user_id)) return res.status(404).json({ error: 'Report not found' });
+    if ((report.status === 'Deleted' || report.moderation_status !== 'Approved') && (!req.user || req.user.id !== report.user_id)) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
     const contact = await getContactContext(report, req.user?.id);
     const canSeeOwnerEmail = Boolean(req.user && (req.user.id === report.user_id || (contact.role === 'requester' && contact.status === 'accepted')));
     return res.json({ ...await decorateReport(report, canSeeOwnerEmail), contact_request: contact.request, contact_role: contact.role, contact_status: contact.status, contact_partner: contact.partner, matches: await getMatchesForReport(id) });

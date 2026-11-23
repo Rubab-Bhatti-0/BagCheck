@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { Mail, MapPin, Building, Calendar, Tag, ArrowLeft, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client, { assetUrl } from '../api/client'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth'
 import MatchCard from '../components/MatchCard'
 
 interface Report {
@@ -11,7 +11,14 @@ interface Report {
   category: string; university_name: string; campus_name: string
   location: string; event_date: string; event_time?: string; created_at: string
   photo_url?: string; status: string; contact_email?: string
-  user_id: number; user_name: string; matches: any[]
+  user_id: number | null; moderation_status: string
+}
+
+interface StoredMatch {
+  match_id: number
+  matched_report_id: number
+  score: number
+  report: Pick<Report, 'title' | 'description' | 'type' | 'location' | 'event_date'>
 }
 
 function fmt(d: string) {
@@ -25,18 +32,36 @@ export default function ItemDetailPage() {
   const location            = useLocation()
   const openedFromBrowse    = location.state?.fromBrowse === true
   const [report, setReport] = useState<Report | null>(null)
-  const [matches, setMatches] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [matchResults, setMatchResults] = useState<{ reportId: string; data: StoredMatch[] } | null>(null)
   const [resolving, setResolving] = useState(false)
   const [deleting, setDeleting]   = useState(false)
 
   useEffect(() => {
     if (!id) return
-    client.get(`/api/reports/${id}`)
-      .then(({ data }) => { setReport(data); setMatches(data.matches || []) })
-      .catch(() => navigate('/browse'))
-      .finally(() => setLoading(false))
-  }, [id, navigate])
+    const controller = new AbortController()
+    const config = { signal: controller.signal }
+    client.get<Report>(`/api/reports/${id}`, config)
+      .then(({ data }) => {
+        if (controller.signal.aborted) return
+        setReport(data)
+        if (data.moderation_status === 'Approved' && data.status !== 'Deleted') {
+          client.get<StoredMatch[]>(`/api/matches/${id}`, config)
+            .then(({ data: suggestions }) => {
+              if (!controller.signal.aborted) setMatchResults({ reportId: id, data: suggestions })
+            })
+            .catch(() => {
+              if (!controller.signal.aborted) toast.error('Could not load suggested matches.')
+            })
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          toast.error('Could not load this report.')
+          navigate('/browse', { replace: true })
+        }
+      })
+    return () => controller.abort()
+  }, [id, navigate, user?.id])
 
   async function markResolved() {
     if (!report) return
@@ -60,7 +85,7 @@ export default function ItemDetailPage() {
     finally { setDeleting(false) }
   }
 
-  if (loading) return (
+  if (!report || report.id !== Number(id)) return (
     <div className="mx-auto max-w-3xl px-5 py-10 animate-pulse">
       <div className="h-72 rounded-2xl bg-[#1a1d2e] mb-6" />
       <div className="h-8 w-2/3 rounded-lg bg-[#1a1d2e] mb-3" />
@@ -69,9 +94,9 @@ export default function ItemDetailPage() {
     </div>
   )
 
-  if (!report) return null
   const isLost   = report.type === 'Lost'
   const isOwner  = user && user.id === report.user_id
+  const matches = matchResults?.reportId === id ? matchResults?.data ?? [] : []
 
   function closeDetails() {
     if (openedFromBrowse) navigate(-1)
@@ -192,8 +217,8 @@ export default function ItemDetailPage() {
             <span className="ml-auto rounded-full bg-[#22c55e]/15 px-2 py-0.5 text-xs font-semibold text-[#22c55e]">{matches.length} found</span>
           </div>
           <div className="space-y-3">
-            {matches.map((m: any) => (
-              <MatchCard key={m.id || m.matched_report_id} match={{ report_id: m.matched_report_id, score: m.score_percent || m.score, title: m.report?.title || '', description: m.report?.description || '', type: m.report?.type || '', location: m.report?.location || '', event_date: m.report?.event_date || '' }}
+            {matches.map((match) => (
+              <MatchCard key={match.match_id} match={{ ...match.report, report_id: match.matched_report_id, score: match.score }}
                 onView={(rid) => navigate(`/items/${rid}`)} />
             ))}
           </div>

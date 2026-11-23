@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAuth } from '../context/AuthContext'
+import { apiErrorMessage } from '../api/client'
+import { useAuth } from '../context/auth'
 
 export default function RegisterPage() {
   const { register, user } = useAuth()
@@ -15,7 +16,9 @@ export default function RegisterPage() {
   const [showPass,  setShowPass]  = useState(false)
   const [loading,   setLoading]   = useState(false)
 
-  if (user) { navigate('/browse'); return null }
+  const returnTo = new URLSearchParams(location.search).get('returnTo')
+  const destination = returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/browse'
+  if (user) return <Navigate to={destination} replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -25,10 +28,9 @@ export default function RegisterPage() {
     try {
       await register(name, email, password)
       toast.success('Account created! Welcome to BagCheck.')
-      const returnTo = new URLSearchParams(location.search).get('returnTo')
-      navigate(returnTo && returnTo.startsWith('/') ? returnTo : '/browse')
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Registration failed')
+      navigate(destination, { replace: true })
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Registration failed'))
     } finally {
       setLoading(false)
     }

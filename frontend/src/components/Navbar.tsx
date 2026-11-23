@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Menu, X, Backpack, LogOut, LayoutDashboard, User } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth'
 
 export default function Navbar() {
   const { user, logout } = useAuth()

@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { isAxiosError } from 'axios'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '')
 
@@ -6,6 +6,10 @@ export function assetUrl(path?: string | null) {
   if (!path) return ''
   if (/^https?:\/\//i.test(path)) return path
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+export function apiErrorMessage(error: unknown, fallback: string) {
+  return isAxiosError<{ error?: string }>(error) ? error.response?.data?.error || fallback : fallback
 }
 
 const client = axios.create({ baseURL: API_BASE_URL })
