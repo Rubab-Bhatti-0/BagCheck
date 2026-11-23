@@ -11,9 +11,12 @@ const { uploadImage } = require('../services/cloudinary');
 const ML_URL = (process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 
 async function callML(endpoint, body) {
+  const token = process.env.ML_SERVICE_TOKEN;
+  if (!token) throw new Error('ML_SERVICE_TOKEN is missing');
+
   const response = await fetch(`${ML_URL}${endpoint}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-ML-Service-Token': token },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(endpoint === '/api/match' ? 60_000 : 5_000),
   });

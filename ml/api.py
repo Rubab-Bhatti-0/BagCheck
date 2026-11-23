@@ -1,7 +1,9 @@
 import logging
-from typing import Literal
+import os
+from hmac import compare_digest
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from moderate.classifier import is_relevant
@@ -32,12 +34,18 @@ class MatchRequest(BaseModel):
     type: Literal['Lost', 'Found']
 
 
+def require_ml_token(token: Annotated[str, Header(alias="X-ML-Service-Token")] = "") -> None:
+    expected = os.getenv("ML_SERVICE_TOKEN", "")
+    if not expected or not compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/api/moderate")
+@app.post("/api/moderate", dependencies=[Depends(require_ml_token)])
 def moderate(req: ModerateRequest):
     result = is_relevant(req.title, req.description)
     messages = {
@@ -48,7 +56,7 @@ def moderate(req: ModerateRequest):
     return {**result, 'message': messages.get(result['reason'], 'This looks like a relevant lost or found report.')}
 
 
-@app.post("/api/match")
+@app.post("/api/match", dependencies=[Depends(require_ml_token)])
 def match(req: MatchRequest):
     try:
         matches = find_matches(req.report_id, req.title, req.description, req.category, req.campus_id, req.type)

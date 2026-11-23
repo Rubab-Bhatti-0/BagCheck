@@ -45,6 +45,8 @@ The service will be available at `http://localhost:8000`.
 
 ## Endpoints
 
+Both POST endpoints require `X-ML-Service-Token` with the shared `ML_SERVICE_TOKEN` value. Set that value in the Express and ML environments. For local development, `ml/.env` and `backend/.env` provide fallback configuration.
+
 ### `GET /health`
 
 Health check.
@@ -76,6 +78,7 @@ Classify whether a post is a valid lost/found report.
 ```bash
 curl -X POST http://localhost:8000/api/moderate \
   -H "Content-Type: application/json" \
+  -H "X-ML-Service-Token: $ML_SERVICE_TOKEN" \
   -d "{\"title\": \"Lost my wallet\", \"description\": \"Brown wallet near the library\"}"
 ```
 
@@ -112,6 +115,7 @@ Find semantically similar reports of the opposite type (Lost ↔ Found) from the
 ```bash
 curl -X POST http://localhost:8000/api/match \
   -H "Content-Type: application/json" \
+  -H "X-ML-Service-Token: $ML_SERVICE_TOKEN" \
   -d "{\"report_id\": 42, \"title\": \"Lost black earbuds\", \"description\": \"Lost near CS block\", \"category\": \"Electronics\", \"campus_id\": 1, \"type\": \"Lost\"}"
 ```
 

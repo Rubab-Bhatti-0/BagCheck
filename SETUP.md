@@ -78,6 +78,7 @@ MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@YOUR-CLUSTER.mongodb.net/?retryWrite
 MONGODB_DB_NAME=bagcheck
 FRONTEND_URLS=http://localhost:5173,http://127.0.0.1:5173
 ML_SERVICE_URL=http://localhost:8000
+ML_SERVICE_TOKEN=your_generated_shared_token
 RESEND_API_KEY=
 FROM_EMAIL=BagCheck <noreply@example.com>
 ```
@@ -144,6 +145,8 @@ Invoke-WebRequest http://127.0.0.1:8000/health
 ```
 
 The training command creates `ml/moderate/model.pkl`. Run it again whenever the moderation CSV dataset changes. Set `ML_SERVICE_URL=http://127.0.0.1:8000` in `backend/.env` for the local ML service.
+
+Generate a shared token with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Set `ML_SERVICE_TOKEN` in `backend/.env`. The local ML service reads that file as a fallback. If `ml/.env` sets the token, use the same value there. For separate deployments, set the same token in both server environments.
 
 The ML service checks the title and the combined title-description text. If the classifier has not been trained, the service uses text rules. If the service is unavailable, the backend asks the user to retry the submission before creating a report.
 

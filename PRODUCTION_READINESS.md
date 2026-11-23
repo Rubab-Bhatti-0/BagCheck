@@ -23,6 +23,7 @@ Copy `backend/.env.example` to `backend/.env` only for local use, or create thes
 - `MONGODB_DB_NAME=bagcheck`
 - `FRONTEND_URLS=https://your-real-frontend-domain`
 - `ML_SERVICE_URL=https://your-real-ml-domain`
+- `ML_SERVICE_TOKEN` with the same randomly generated value in the backend and ML services
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
 - optional `RESEND_API_KEY` and verified `FROM_EMAIL`
 
@@ -38,7 +39,7 @@ If Cloudinary is not configured, photo posts will fail rather than silently stor
 
 1. Create the MongoDB database and restricted user, then set `MONGODB_URI` and `MONGODB_DB_NAME`.
 2. Deploy the ML service, install `ml/requirements.txt`, train the moderation model with `python -m moderate.train`, and verify `GET /health`.
-3. Deploy the backend with its protected variables and run the seed once against the intended database. Do not run the destructive seed command again against production.
+3. Deploy the backend with its protected variables. Run the seed command only when intentionally initializing an empty demo database.
 4. Verify `GET /api/health`, registration/login, `POST /api/reports`, a photo upload, `POST /api/reports/check-content`, and matching with both a match and no-match case.
 5. Build and deploy the frontend with `VITE_API_URL` set to the HTTPS API URL.
 6. Configure HTTPS, domain restrictions, logs/alerts, database backups, and a rollback procedure before announcing the service.
