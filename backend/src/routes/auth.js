@@ -56,6 +56,9 @@ router.post('/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    if (!Number.isSafeInteger(user.id) || user.id < 1) {
+      return res.status(503).json({ error: 'This account needs its Back2U ID restored before it can sign in.' });
+    }
 
     const publicUser = { id: user.id, name: user.name, email: user.email };
     return res.json({ token: signToken(publicUser), user: publicUser });

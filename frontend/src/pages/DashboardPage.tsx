@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, CheckCircle, Trash2, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth'
 import client from '../api/client'
 
 interface Report { id: number; type: 'Lost'|'Found'; title: string; description: string; category: string; campus_name: string; university_name: string; event_date: string; created_at: string; status: string; moderation_status: string }
@@ -44,67 +44,61 @@ export default function DashboardPage() {
     } catch { toast.error('Failed') }
   }
 
-  if (authLoading || loading) return (
-    <div className="mx-auto max-w-4xl px-5 py-10 animate-pulse space-y-4">
-      {[1,2,3].map((i) => <div key={i} className="h-24 rounded-2xl bg-[#1a1d2e]" />)}
-    </div>
-  )
+  if (authLoading || loading) {
+    return (
+      <main className="page-shell max-w-5xl space-y-4 py-10" aria-busy="true">
+        {[1, 2, 3].map((index) => <div key={index} className="h-24 animate-pulse rounded-xl bg-wash" />)}
+      </main>
+    )
+  }
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-10">
-      <div className="mb-6 flex items-center justify-between">
+    <main className="page-shell max-w-5xl py-8 sm:py-12">
+      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">My Reports</h1>
-          <p className="text-sm text-[#94a3b8]">Logged in as <span className="text-white">{user?.name}</span></p>
+          <h1 className="page-title">My reports</h1>
+          <p className="mt-2 text-sm text-muted">Signed in as {user?.name}</p>
         </div>
-        <Link to="/report" className="flex items-center gap-2 rounded-xl bg-[#22c55e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#16a34a] transition-colors">
-          <Plus size={16} /> New Report
-        </Link>
+        <Link to="/report" className="btn btn-primary"><Plus size={17} aria-hidden="true" /> New report</Link>
       </div>
 
       {reports.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[#2d3148] bg-[#1a1d2e] py-16 text-center">
-          <p className="text-lg font-semibold mb-2">No reports yet</p>
-          <p className="text-sm text-[#94a3b8] mb-5">Post your first lost or found item.</p>
-          <Link to="/report" className="rounded-xl bg-[#22c55e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#16a34a] transition-colors">
-            Report an Item
-          </Link>
-        </div>
+        <section className="panel px-5 py-12 text-center">
+          <h2 className="font-display text-2xl">No reports yet</h2>
+          <p className="mt-2 mb-4 text-sm text-muted">Your lost and found reports will appear here.</p>
+          <Link to="/report" className="btn btn-primary">Report an item</Link>
+        </section>
       ) : (
-        <div className="space-y-4">
-          {reports.map((r) => (
-            <div key={r.id} className="flex flex-col gap-4 rounded-2xl border border-[#2d3148] bg-[#1a1d2e] p-5 sm:flex-row sm:items-center">
-              <div className="flex-1 min-w-0">
-                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold uppercase ${r.type === 'Lost' ? 'bg-[#ef4444]/15 text-[#ef4444]' : 'bg-[#22c55e]/15 text-[#22c55e]'}`}>{r.type}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    r.status === 'Active' ? 'bg-blue-500/15 text-blue-400' :
-                    r.status === 'Resolved' ? 'bg-green-500/15 text-green-400' :
-                    'bg-red-500/15 text-red-400'
-                  }`}>{r.status}</span>
-                  {r.moderation_status === 'Rejected' && <span className="rounded-full bg-orange-500/15 px-2 py-0.5 text-xs text-orange-400">Rejected</span>}
-                  <span className="text-xs text-[#4b5563]">{r.category}</span>
+        <div className="space-y-3">
+          {reports.map((report) => (
+            <article key={report.id} className="panel flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={'status-label ' + (report.type === 'Lost' ? 'status-lost' : 'status-found')}>{report.type}</span>
+                  <span className={'status-label ' + (report.status === 'Resolved' ? 'status-found' : 'bg-wash text-muted')}>{report.status}</span>
+                  {report.moderation_status === 'Rejected' && <span className="status-label status-lost">Rejected</span>}
+                  <span className="text-xs text-muted">{report.category}</span>
                 </div>
-                <p className="font-semibold truncate">{r.title}</p>
-                <p className="text-xs text-[#64748b] mt-0.5">{r.university_name} • {r.campus_name} • {r.event_date ? fmt(r.event_date) : fmt(r.created_at)}</p>
+                <h2 className="mt-2 break-words font-semibold">{report.title}</h2>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  {[report.university_name, report.campus_name, fmt(report.event_date || report.created_at)].filter(Boolean).join(' · ')}
+                </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Link to={`/items/${r.id}`} className="flex items-center gap-1 rounded-lg border border-[#2d3148] px-3 py-2 text-xs text-[#94a3b8] hover:text-white transition-colors">
-                  View <ArrowRight size={12} />
-                </Link>
-                {r.status === 'Active' && (
-                  <button onClick={() => markResolved(r.id)} title="Mark resolved" className="rounded-lg border border-blue-500/30 p-2 text-blue-400 hover:bg-blue-500/10 transition-colors">
-                    <CheckCircle size={16} />
+              <div className="flex flex-wrap items-center gap-2">
+                <Link to={'/items/' + report.id} className="btn btn-secondary">View <ArrowRight size={15} aria-hidden="true" /></Link>
+                {report.status === 'Active' && (
+                  <button type="button" onClick={() => markResolved(report.id)} title="Mark resolved" aria-label={'Mark ' + report.title + ' resolved'} className="btn btn-secondary px-3 text-accent">
+                    <CheckCircle size={17} aria-hidden="true" />
                   </button>
                 )}
-                <button onClick={() => deleteReport(r.id)} title="Delete" className="rounded-lg border border-[#ef4444]/30 p-2 text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors">
-                  <Trash2 size={16} />
+                <button type="button" onClick={() => deleteReport(report.id)} title="Delete report" aria-label={'Delete ' + report.title} className="btn btn-secondary px-3 text-lost">
+                  <Trash2 size={16} aria-hidden="true" />
                 </button>
               </div>
-            </div>
+            </article>
           ))}
         </div>
       )}
-    </div>
+    </main>
   )
 }

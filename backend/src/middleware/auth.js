@@ -14,7 +14,10 @@ function requireAuth(req, res, next) {
 
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'bagcheck_secret_change_in_prod');
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (!Number.isSafeInteger(payload.id) || payload.id < 1) {
+      return res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
+    }
     req.user = { id: payload.id, name: payload.name, email: payload.email };
     next();
   } catch (err) {
@@ -30,8 +33,10 @@ function optionalAuth(req, _res, next) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice(7);
-      const payload = jwt.verify(token, process.env.JWT_SECRET || 'bagcheck_secret_change_in_prod');
-      req.user = { id: payload.id, name: payload.name, email: payload.email };
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      if (Number.isSafeInteger(payload.id) && payload.id > 0) {
+        req.user = { id: payload.id, name: payload.name, email: payload.email };
+      }
     } catch (_) {
       // ignore bad token for optional routes
     }

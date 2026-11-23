@@ -1,142 +1,83 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Menu, X, Backpack, LogOut, LayoutDashboard, User } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
+﻿import { useState } from 'react'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { LogOut, Menu, Plus, X } from 'lucide-react'
+import wordmark from '../assets/back2u-wordmark.png'
+import { useAuth } from '../context/auth'
+
+const navigation = [
+  { to: '/browse', label: 'Browse' },
+  { to: '/how-it-works', label: 'How it works' },
+  { to: '/dashboard', label: 'My reports', signedIn: true },
+]
 
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const links = navigation.filter((link) => !link.signedIn || user)
 
   function handleLogout() {
     logout()
+    setMenuOpen(false)
     navigate('/browse')
   }
 
   return (
-    <nav className="border-b border-[#2d3148] bg-[#13162a] sticky top-0 z-50">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
-        {/* Logo */}
-        <Link
-          to="/browse"
-          className="flex items-center gap-2.5 text-white font-bold text-xl tracking-tight"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#22c55e] text-white">
-            <Backpack size={20} />
-          </span>
-          BagCheck
+    <header className="sticky top-0 z-30 border-b border-line bg-paper">
+      <div className="page-shell flex min-h-[4.5rem] items-center justify-between gap-4">
+        <Link to="/" onClick={() => setMenuOpen(false)} className="shrink-0 rounded-[0.45rem] bg-[#0f1117] px-2.5 py-1.5">
+          <img src={wordmark} alt="Back2U home" width={448} height={102} className="w-[6.5rem] sm:w-[7.25rem]" />
         </Link>
 
-        {/* Desktop nav links */}
-        <div className="hidden md:flex items-center gap-6 text-sm font-medium text-[#94a3b8]">
-          <Link to="/browse" className="hover:text-white transition-colors">
-            Browse
-          </Link>
-          <a href="#how" className="hover:text-white transition-colors">
-            How It Works
-          </a>
-        </div>
+        <nav aria-label="Main navigation" className="hidden items-center gap-6 md:flex lg:gap-8">
+          {links.map(({ to, label }) => (
+            <NavLink key={to} to={to} className="border-b border-transparent py-2 text-sm font-medium text-muted hover:text-ink aria-[current=page]:border-accent aria-[current=page]:font-semibold aria-[current=page]:text-ink">
+              {label}
+            </NavLink>
+          ))}
+        </nav>
 
-        {/* Desktop auth */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-4">
           {user ? (
-            <>
-              <Link
-                to="/dashboard"
-                className="flex items-center gap-1.5 text-sm text-[#94a3b8] hover:text-white transition-colors"
-              >
-                <LayoutDashboard size={16} />
-                My Reports
-              </Link>
-              <span className="flex items-center gap-1.5 text-sm text-[#94a3b8]">
-                <User size={15} />
-                {user.name}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 rounded-lg border border-[#2d3148] px-3 py-2 text-sm text-[#94a3b8] hover:text-white hover:border-[#ef4444] transition-colors"
-              >
-                <LogOut size={15} />
-                Logout
-              </button>
-            </>
+            <button type="button" onClick={handleLogout} className="hidden items-center gap-1.5 text-sm font-medium text-muted hover:text-ink md:inline-flex">
+              <LogOut size={15} aria-hidden="true" /> Log out
+            </button>
           ) : (
-            <>
-              <Link
-                to="/login"
-                className="rounded-lg border border-[#2d3148] px-4 py-2 text-sm text-[#94a3b8] hover:text-white hover:border-[#22c55e] transition-colors"
-              >
-                Login
-              </Link>
-              <Link
-                to="/register"
-                className="rounded-lg bg-[#22c55e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#16a34a] transition-colors"
-              >
-                Register
-              </Link>
-            </>
+            <Link to="/login" className="hidden text-sm font-medium text-muted hover:text-ink md:inline-block">Log in</Link>
           )}
+          <Link to="/report" onClick={() => setMenuOpen(false)} className="btn btn-primary px-2.5 sm:px-3.5">
+            <Plus size={16} aria-hidden="true" /> <span>Report<span className="hidden sm:inline"> an item</span></span>
+          </Link>
+          <button
+            type="button"
+            className="inline-flex h-11 w-10 items-center justify-center rounded-lg text-ink hover:bg-wash md:hidden"
+            aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-controls="mobile-navigation"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}
+          </button>
         </div>
-
-        {/* Mobile hamburger */}
-        <button
-          className="md:hidden text-[#94a3b8] hover:text-white"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label="Toggle menu"
-        >
-          {menuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
       </div>
 
-      {/* Mobile dropdown */}
-      {menuOpen && (
-        <div className="md:hidden border-t border-[#2d3148] bg-[#13162a] px-5 py-4 flex flex-col gap-3">
-          <Link
-            to="/browse"
-            className="text-sm text-[#94a3b8] hover:text-white"
-            onClick={() => setMenuOpen(false)}
-          >
-            Browse
-          </Link>
-          <a href="#how" className="text-sm text-[#94a3b8] hover:text-white" onClick={() => setMenuOpen(false)}>
-            How It Works
-          </a>
+      <nav id="mobile-navigation" aria-label="Mobile navigation" hidden={!menuOpen} className="border-t border-line md:hidden">
+        <div className="page-shell grid py-2 text-sm font-medium text-muted">
+          {links.map(({ to, label }) => (
+            <NavLink key={to} to={to} onClick={() => setMenuOpen(false)} className="rounded-md px-2 py-3 hover:bg-wash aria-[current=page]:font-semibold aria-[current=page]:text-accent">
+              {label}
+            </NavLink>
+          ))}
           {user ? (
-            <>
-              <Link
-                to="/dashboard"
-                className="text-sm text-[#94a3b8] hover:text-white"
-                onClick={() => setMenuOpen(false)}
-              >
-                My Reports
-              </Link>
-              <button
-                onClick={() => { handleLogout(); setMenuOpen(false) }}
-                className="text-left text-sm text-[#ef4444] hover:text-red-400"
-              >
-                Logout ({user.name})
-              </button>
-            </>
+            <button type="button" onClick={handleLogout} className="rounded-md px-2 py-3 text-left hover:bg-wash">Log out</button>
           ) : (
             <>
-              <Link
-                to="/login"
-                className="text-sm text-[#94a3b8] hover:text-white"
-                onClick={() => setMenuOpen(false)}
-              >
-                Login
-              </Link>
-              <Link
-                to="/register"
-                className="text-sm font-semibold text-[#22c55e] hover:text-green-400"
-                onClick={() => setMenuOpen(false)}
-              >
-                Register
-              </Link>
+              <Link to="/login" onClick={() => setMenuOpen(false)} className="rounded-md px-2 py-3 hover:bg-wash">Log in</Link>
+              <Link to="/register" onClick={() => setMenuOpen(false)} className="rounded-md px-2 py-3 hover:bg-wash">Create account</Link>
             </>
           )}
         </div>
-      )}
-    </nav>
+      </nav>
+    </header>
   )
 }

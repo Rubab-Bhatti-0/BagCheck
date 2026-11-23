@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Mail, MapPin, Building, Calendar, Tag, ArrowLeft, CheckCircle } from 'lucide-react'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
+import { Mail, MapPin, Building, CalendarDays, Clock, ArrowLeft, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client, { assetUrl } from '../api/client'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/auth'
 import MatchCard from '../components/MatchCard'
 
 interface Report {
   id: number; type: 'Lost'|'Found'; title: string; description: string
   category: string; university_name: string; campus_name: string
-  location: string; event_date: string; created_at: string
+  location: string; event_date: string; event_time?: string; created_at: string
   photo_url?: string; status: string; contact_email?: string
-  user_id: number; user_name: string; matches: any[]
+  user_id: number | null; moderation_status: string
+}
+
+interface StoredMatch {
+  match_id: number
+  matched_report_id: number
+  score: number
+  report: Pick<Report, 'title' | 'description' | 'type' | 'location' | 'event_date'>
 }
 
 function fmt(d: string) {
@@ -22,19 +29,39 @@ export default function ItemDetailPage() {
   const { id }              = useParams()
   const { user }            = useAuth()
   const navigate            = useNavigate()
+  const location            = useLocation()
+  const openedFromBrowse    = location.state?.fromBrowse === true
   const [report, setReport] = useState<Report | null>(null)
-  const [matches, setMatches] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [matchResults, setMatchResults] = useState<{ reportId: string; data: StoredMatch[] } | null>(null)
   const [resolving, setResolving] = useState(false)
   const [deleting, setDeleting]   = useState(false)
 
   useEffect(() => {
     if (!id) return
-    client.get(`/api/reports/${id}`)
-      .then(({ data }) => { setReport(data); setMatches(data.matches || []) })
-      .catch(() => navigate('/browse'))
-      .finally(() => setLoading(false))
-  }, [id, navigate])
+    const controller = new AbortController()
+    const config = { signal: controller.signal }
+    client.get<Report>(`/api/reports/${id}`, config)
+      .then(({ data }) => {
+        if (controller.signal.aborted) return
+        setReport(data)
+        if (data.moderation_status === 'Approved' && data.status !== 'Deleted') {
+          client.get<StoredMatch[]>(`/api/matches/${id}`, config)
+            .then(({ data: suggestions }) => {
+              if (!controller.signal.aborted) setMatchResults({ reportId: id, data: suggestions })
+            })
+            .catch(() => {
+              if (!controller.signal.aborted) toast.error('Could not load suggested matches.')
+            })
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          toast.error('Could not load this report.')
+          navigate('/browse', { replace: true })
+        }
+      })
+    return () => controller.abort()
+  }, [id, navigate, user?.id])
 
   async function markResolved() {
     if (!report) return
@@ -58,127 +85,111 @@ export default function ItemDetailPage() {
     finally { setDeleting(false) }
   }
 
-  if (loading) return (
-    <div className="mx-auto max-w-3xl px-5 py-10 animate-pulse">
-      <div className="h-72 rounded-2xl bg-[#1a1d2e] mb-6" />
-      <div className="h-8 w-2/3 rounded-lg bg-[#1a1d2e] mb-3" />
-      <div className="h-4 rounded-lg bg-[#1a1d2e] mb-2" />
-      <div className="h-4 w-4/5 rounded-lg bg-[#1a1d2e]" />
-    </div>
-  )
+  if (!report || report.id !== Number(id)) {
+    return (
+      <main aria-busy="true" className="page-shell max-w-4xl py-10">
+        <div className="h-72 animate-pulse rounded-xl bg-wash" />
+      </main>
+    )
+  }
 
-  if (!report) return null
-  const isLost   = report.type === 'Lost'
-  const isOwner  = user && user.id === report.user_id
+  const isOwner = user && user.id === report.user_id
+  const matches = matchResults?.reportId === id ? matchResults?.data ?? [] : []
+  const facts = [
+    { icon: MapPin, label: 'Location', value: report.location },
+    { icon: Building, label: 'Campus', value: report.campus_name },
+    { icon: Building, label: 'University', value: report.university_name },
+    { icon: CalendarDays, label: 'Date', value: report.event_date && fmt(report.event_date) },
+    { icon: Clock, label: 'Time', value: report.event_time },
+  ].filter(({ value }) => value)
+
+  function closeDetails() {
+    if (openedFromBrowse) navigate(-1)
+    else navigate('/browse')
+  }
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-10">
-      <button onClick={() => navigate(-1)} className="mb-6 flex items-center gap-2 text-sm text-[#94a3b8] hover:text-white transition-colors">
-        <ArrowLeft size={16} /> Back
+    <main className="page-shell max-w-5xl py-7 sm:py-10">
+      <button type="button" onClick={closeDetails} className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-md text-sm font-semibold text-accent hover:underline">
+        <ArrowLeft size={17} aria-hidden="true" /> Back to browse
       </button>
 
-      <article className="overflow-hidden rounded-2xl border border-[#2d3148] bg-[#1a1d2e]">
+      <article className="panel overflow-hidden">
         {report.photo_url && (
-          <img src={assetUrl(report.photo_url)} alt={report.title} className="max-h-72 w-full object-cover" />
+          <img src={assetUrl(report.photo_url)} alt={report.title} className="max-h-96 w-full border-b border-line bg-wash object-contain" />
         )}
-        <div className="p-6 sm:p-8">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${isLost ? 'bg-[#ef4444]/15 text-[#ef4444]' : 'bg-[#22c55e]/15 text-[#22c55e]'}`}>
-              {report.type}
-            </span>
-            <span className="rounded-full border border-[#2d3148] px-3 py-1 text-xs text-[#64748b]">{report.category}</span>
-            {report.status === 'Resolved' && (
-              <span className="flex items-center gap-1 rounded-full bg-blue-500/15 px-3 py-1 text-xs font-semibold text-blue-400">
-                <CheckCircle size={12} /> Resolved
-              </span>
-            )}
-          </div>
-
-          <h1 className="mb-3 text-2xl font-bold sm:text-3xl">{report.title}</h1>
-          <p className="mb-6 text-sm leading-7 text-[#94a3b8]">{report.description}</p>
-
-          <dl className="grid gap-4 border-t border-[#2d3148] pt-6 sm:grid-cols-2">
-            {report.university_name && (
-              <div className="flex items-start gap-2">
-                <Building size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
-                <div><dt className="text-xs text-[#4b5563]">University</dt><dd className="text-sm font-semibold">{report.university_name}</dd></div>
-              </div>
-            )}
-            {report.campus_name && (
-              <div className="flex items-start gap-2">
-                <Building size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
-                <div><dt className="text-xs text-[#4b5563]">Campus</dt><dd className="text-sm font-semibold">{report.campus_name}</dd></div>
-              </div>
-            )}
-            {report.location && (
-              <div className="flex items-start gap-2">
-                <MapPin size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
-                <div><dt className="text-xs text-[#4b5563]">Location</dt><dd className="text-sm font-semibold">{report.location}</dd></div>
-              </div>
-            )}
-            {report.event_date && (
-              <div className="flex items-start gap-2">
-                <Calendar size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
-                <div><dt className="text-xs text-[#4b5563]">Date</dt><dd className="text-sm font-semibold">{fmt(report.event_date)}</dd></div>
-              </div>
-            )}
-            {report.category && (
-              <div className="flex items-start gap-2">
-                <Tag size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
-                <div><dt className="text-xs text-[#4b5563]">Category</dt><dd className="text-sm font-semibold">{report.category}</dd></div>
-              </div>
-            )}
-          </dl>
-
-          {/* Contact */}
-          <div className="mt-6 rounded-xl border border-[#2d3148] p-4">
-            <p className="mb-2 text-sm font-semibold text-[#94a3b8]">Contact</p>
-            {user ? (
-              report.contact_email ? (
-                <a href={`mailto:${report.contact_email}`} className="flex items-center gap-2 text-sm font-semibold text-[#22c55e] hover:underline">
-                  <Mail size={15} /> {report.contact_email}
-                </a>
-              ) : <p className="text-sm text-[#4b5563]">No contact email provided.</p>
-            ) : (
-              <div className="flex items-center gap-3">
-                <p className="text-sm text-[#64748b] blur-sm select-none">hidden@example.com</p>
-                <Link to="/login" className="rounded-lg bg-[#22c55e] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#16a34a]">Login to Contact</Link>
-              </div>
-            )}
-          </div>
-
-          {/* Owner actions */}
-          {isOwner && report.status === 'Active' && (
-            <div className="mt-4 flex gap-3">
-              <button onClick={markResolved} disabled={resolving}
-                className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                {resolving ? 'Updating…' : '✓ Mark as Resolved'}
-              </button>
-              <button onClick={deleteReport} disabled={deleting}
-                className="flex-1 rounded-xl border border-[#ef4444]/30 py-2.5 text-sm font-semibold text-[#ef4444] hover:bg-[#ef4444]/10 disabled:opacity-50 transition-colors">
-                {deleting ? 'Deleting…' : 'Delete Report'}
-              </button>
+        <div className="grid gap-7 p-5 sm:p-8 md:grid-cols-[minmax(0,1fr)_minmax(14rem,0.5fr)]">
+          <div className="min-w-0">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className={'status-label ' + (report.type === 'Lost' ? 'status-lost' : 'status-found')}>{report.type}</span>
+              <span className="text-sm text-muted">{report.category}</span>
+              {report.status === 'Resolved' && (
+                <span className="status-label status-found"><CheckCircle size={14} aria-hidden="true" /> Resolved</span>
+              )}
             </div>
-          )}
+            <h1 className="page-title break-words">{report.title}</h1>
+            <p className="mt-4 text-base leading-7 whitespace-pre-line text-muted">{report.description}</p>
+
+            {isOwner && report.status === 'Active' && (
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button type="button" onClick={markResolved} disabled={resolving} className="btn btn-primary">
+                  <CheckCircle size={16} aria-hidden="true" /> {resolving ? 'Updating…' : 'Mark resolved'}
+                </button>
+                <button type="button" onClick={deleteReport} disabled={deleting} className="btn btn-secondary text-lost">
+                  {deleting ? 'Deleting…' : 'Delete report'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <aside className="rounded-xl bg-wash p-4 sm:p-5">
+            {facts.length > 0 && (
+              <dl className="space-y-3">
+                {facts.map(({ icon: Icon, label, value }) => (
+                  <div key={label} className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2.5">
+                    <Icon size={16} className="mt-0.5 text-accent" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <dt className="text-xs text-muted">{label}</dt>
+                      <dd className="mt-0.5 text-sm font-medium break-words">{value}</dd>
+                    </div>
+                  </div>
+                ))}
+              </dl>
+            )}
+
+            <div className={facts.length ? 'mt-5 border-t border-line pt-4' : ''}>
+              <h2 className="text-sm font-semibold">Contact</h2>
+              {user ? (
+                report.contact_email ? (
+                  <a href={'mailto:' + report.contact_email} className="mt-2 inline-flex items-start gap-2 text-sm font-medium break-all text-accent hover:underline">
+                    <Mail size={16} className="shrink-0" aria-hidden="true" /> {report.contact_email}
+                  </a>
+                ) : <p className="mt-1 text-sm text-muted">Contact details are private.</p>
+              ) : (
+                <div className="mt-1 text-sm text-muted">
+                  <p>Contact details are kept off the public board.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link to={'/login?returnTo=/items/' + report.id} className="btn btn-primary">Log in</Link>
+                    <Link to={'/register?returnTo=/items/' + report.id} className="btn btn-secondary">Create account</Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
       </article>
 
-      {/* ML Matches */}
       {matches.length > 0 && (
-        <section className="mt-8">
-          <div className="mb-4 flex items-center gap-2">
-            <span className="text-lg">✨</span>
-            <h2 className="text-lg font-bold">AI-Suggested Matches</h2>
-            <span className="ml-auto rounded-full bg-[#22c55e]/15 px-2 py-0.5 text-xs font-semibold text-[#22c55e]">{matches.length} found</span>
-          </div>
+        <section className="mt-8" aria-labelledby="item-matches">
+          <h2 id="item-matches" className="mb-4 font-display text-3xl tracking-tight">Possible matches</h2>
           <div className="space-y-3">
-            {matches.map((m: any) => (
-              <MatchCard key={m.id || m.matched_report_id} match={{ report_id: m.matched_report_id, score: m.score_percent || m.score, title: m.report?.title || '', description: m.report?.description || '', type: m.report?.type || '', location: m.report?.location || '', event_date: m.report?.event_date || '' }}
-                onView={(rid) => navigate(`/items/${rid}`)} />
+            {matches.map((match) => (
+              <MatchCard key={match.match_id} match={{ ...match.report, report_id: match.matched_report_id, score: match.score }}
+                onView={(rid) => navigate('/items/' + rid)} />
             ))}
           </div>
         </section>
       )}
-    </div>
+    </main>
   )
 }

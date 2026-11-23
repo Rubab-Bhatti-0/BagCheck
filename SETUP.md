@@ -8,23 +8,23 @@ Run the backend, frontend, and ML service in separate terminals.
 # Backend
 cd "D:\Rubab\Git Repos\BagCheck\backend"
 npm.cmd install
-Copy-Item .env.example .env
-npm.cmd run seed
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Configure the values in .env before starting the service.
 npm.cmd run dev
 
 # Frontend
 cd "D:\Rubab\Git Repos\BagCheck\frontend"
 npm.cmd install
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Set VITE_API_URL=http://localhost:3001 for the local backend.
 npm.cmd run dev
 
 # ML service
 cd "D:\Rubab\Git Repos\BagCheck\ml"
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-py -m pip install -r requirements.txt
-py -m moderate.train
-py -m uvicorn api:app --reload --port 8000
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m moderate.train
+.\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
 ## MongoDB connection
@@ -92,14 +92,16 @@ VITE_API_URL=http://localhost:3001
 
 ## Data initialization
 
-After setting `MONGODB_URI`, run:
+To populate an empty development database after setting `MONGODB_URI`, run:
 
 ```powershell
 cd "D:\Rubab\Git Repos\BagCheck\backend"
 npm.cmd run seed
 ```
 
-The seed command clears and recreates the BagCheck collections. Demo login:
+The seed command clears and recreates the BagCheck collections. For an existing database affected by null IDs, preview the repair with `npm.cmd run repair:legacy-ids`. After reviewing the results, run `npm.cmd run repair:legacy-ids -- --apply` against the MongoDB Atlas database or a replica set. The repair preserves the records, restores verified relationships from the demo seed, and reports how many existing reports still need owner and campus details. Users with old sessions must sign in again.
+
+Demo login:
 
 ```text
 Email: demo@bagcheck.app
@@ -123,6 +125,28 @@ Multer is not a cloud-storage link. For production durable image storage, use on
 
 ## ML service
 
+### Windows start commands
+
+Open a new PowerShell terminal and run these commands from the repository root:
+
+```powershell
+cd "D:\Rubab\Git Repos\BagCheck\ml"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m moderate.train
+.\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8000
+```
+
+Keep this terminal running. In another PowerShell terminal verify the service:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8000/health
+```
+
+The training command creates `ml/moderate/model.pkl`. Run it again whenever the moderation CSV dataset changes. Set `ML_SERVICE_URL=http://127.0.0.1:8000` in `backend/.env` for the local ML service.
+
+The ML service checks the title and the combined title-description text. If the classifier has not been trained, the service uses text rules. If the service is unavailable, the backend asks the user to retry the submission before creating a report.
+
 The backend calls:
 
 ```text
@@ -131,7 +155,7 @@ POST http://localhost:8000/api/moderate
 POST http://localhost:8000/api/match
 ```
 
-The ML matcher now reads MongoDB using the same `MONGODB_URI` and `MONGODB_DB_NAME` values. Add `pymongo` by installing `ml/requirements.txt`.
+The ML matcher reads `MONGODB_URI` and `MONGODB_DB_NAME` from the process environment or `ml/.env`, with `backend/.env` as a fallback. Set both services to use the same database. The first match with eligible candidates downloads MiniLM if needed.
 
 ## Optional email
 

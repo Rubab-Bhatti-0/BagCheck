@@ -1,8 +1,6 @@
 'use strict';
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
-const bcrypt = require('bcryptjs');
-const db = require('../db');
+const DEMO_EMAIL = 'demo@bagcheck.app';
 
 const universities = [
   { name: 'COMSATS University Islamabad', short_name: 'CUI', campuses: [['Lahore Campus', 'Lahore'], ['Islamabad Campus', 'Islamabad'], ['Wah Campus', 'Wah Cantt'], ['Abbottabad Campus', 'Abbottabad']] },
@@ -30,6 +28,9 @@ const samples = [
 ];
 
 async function seed() {
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+  const bcrypt = require('bcryptjs');
+  const db = require('../db');
   await db.ready;
   const { users, universities: universityCollection, campuses, reports, matches, counters } = db.collections();
   await Promise.all([users.deleteMany({}), universityCollection.deleteMany({}), campuses.deleteMany({}), reports.deleteMany({}), matches.deleteMany({}), counters.deleteMany({})]);
@@ -49,7 +50,7 @@ async function seed() {
   }
 
   const userId = await db.nextId('users');
-  await users.insertOne({ id: userId, name: 'Demo User', email: 'demo@bagcheck.app', password_hash: await bcrypt.hash('demo1234', 10), created_at: new Date() });
+  await users.insertOne({ id: userId, name: 'Demo User', email: DEMO_EMAIL, password_hash: await bcrypt.hash('demo1234', 10), created_at: new Date() });
 
   for (const [type, title, description, category, university, campus, location, eventDate, contact] of samples) {
     await reports.insertOne({
@@ -65,4 +66,8 @@ async function seed() {
   await db.close();
 }
 
-seed().catch((err) => { console.error(err); process.exit(1); });
+if (require.main === module) {
+  seed().catch((err) => { console.error(err); process.exit(1); });
+}
+
+module.exports = { universities, samples, DEMO_EMAIL };

@@ -1,11 +1,12 @@
 {
   "routes": [
-    { "path": "/", "title": "BagCheck" },
-    { "path": "/browse", "title": "Browse Lost & Found" },
+    { "path": "/", "title": "Back2U" },
+    { "path": "/browse", "title": "Browse reports" },
     { "path": "/items/:id", "title": "Item Details" },
     { "path": "/report", "title": "Report an Item" },
     { "path": "/login", "title": "Log In" },
     { "path": "/register", "title": "Create Account" },
-    { "path": "/dashboard", "title": "My Dashboard" }
+    { "path": "/dashboard", "title": "My Dashboard" },
+    { "path": "/how-it-works", "title": "How It Works" }
   ]
 }

@@ -21,7 +21,7 @@ From the `ml/` directory:
 pip install -r requirements.txt
 ```
 
-> **Note:** The first request to `/api/match` will automatically download the `all-MiniLM-L6-v2` sentence-transformers model (~90 MB). Subsequent requests use the cached model.
+> The first match request with eligible candidates downloads `all-MiniLM-L6-v2` (~90 MB) if needed. The service can load a complete cached copy offline.
 
 ### 2. Train the moderation classifier
 
@@ -88,7 +88,7 @@ curl -X POST http://localhost:8000/api/moderate \
 }
 ```
 
-> If `model.pkl` has not been trained yet, the service returns `relevant: true` with `reason: "model_not_trained"` so posts are not blocked.
+> If `model.pkl` has not been trained, the service uses lost-and-found text rules. Rule-based decisions have `confidence: null`.
 
 ---
 
@@ -174,5 +174,5 @@ ml/
 ## Notes
 
 - Run all commands from the `ml/` directory.
-- The backend must be running and the MongoDB `reports` collection populated for `/api/match` to return results. It gracefully returns an empty list if the DB is unavailable.
+- The MongoDB settings come from the process environment or `ml/.env`, with `backend/.env` as a fallback. Set them to the same database as the backend. `/api/match` returns HTTP 503 when the database or model is unavailable and returns an empty list when a successful search finds no matches.
 - The sentence-transformers model is downloaded on first use and cached by Hugging Face locally.
