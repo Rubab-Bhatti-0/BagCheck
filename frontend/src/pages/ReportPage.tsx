@@ -23,17 +23,22 @@ export default function ReportPage() {
   const [description, setDescription] = useState('')
   const [contentStatus, setContentStatus] = useState<ContentStatus>('idle')
   const [contentConfidence, setContentConfidence] = useState<number | null>(null)
+  const [contentFeedback, setContentFeedback] = useState('')
   const [category, setCategory] = useState('General')
   const [uniId, setUniId] = useState('')
   const [campusId, setCampusId] = useState('')
   const [location, setLocation] = useState('')
   const [eventDate, setEventDate] = useState('')
+  const [eventTime, setEventTime] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [matches, setMatches] = useState<Match[]>([])
   const [submitted, setSubmitted] = useState(false)
+  const [reportId, setReportId] = useState<number | null>(null)
+  const [matchChecked, setMatchChecked] = useState(false)
+  const [checkingMatches, setCheckingMatches] = useState(false)
 
   const campuses = useMemo(() => {
     const uni = universities.find((u) => String(u.id) === uniId)
@@ -52,38 +57,6 @@ export default function ReportPage() {
     if (user) setContactEmail(user.email)
   }, [user])
 
-  // Check the text while the user is writing. The backend repeats this check
-  // during final submission, so this is guidance and early feedback, not the
-  // only moderation gate.
-  useEffect(() => {
-    const cleanTitle = title.trim()
-    const cleanDescription = description.trim()
-    if (cleanTitle.length < 5 || cleanDescription.length < 20) {
-      setContentStatus('idle')
-      setContentConfidence(null)
-      return
-    }
-
-    setContentStatus('checking')
-    const timer = window.setTimeout(async () => {
-      try {
-        const { data } = await client.post('/api/reports/check-content', {
-          title: cleanTitle,
-          description: cleanDescription,
-        })
-        if (data.relevant === false) setContentStatus('irrelevant')
-        else if (data.relevant === true) setContentStatus('relevant')
-        else setContentStatus('unavailable')
-        setContentConfidence(typeof data.confidence === 'number' ? data.confidence : null)
-      } catch {
-        setContentStatus('unavailable')
-        setContentConfidence(null)
-      }
-    }, 650)
-
-    return () => window.clearTimeout(timer)
-  }, [title, description])
-
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] || null
     setPhoto(file)
@@ -91,16 +64,47 @@ export default function ReportPage() {
     else setPhotoPreview(null)
   }
 
-  function continueToDetails() {
+  async function continueToDetails() {
     if (!title.trim() || !description.trim()) {
-      toast.error('Enter a title and description first')
+      setContentStatus('irrelevant')
+      setContentFeedback('This is not a valid lost/found report yet. Enter a title and description about the item.')
+      toast.error('This is not a valid lost/found report yet')
       return
     }
-    if (contentStatus === 'irrelevant') {
-      toast.error('Please describe a genuine lost or found item before continuing')
+    if (title.trim().length < 1 || description.trim().length < 8) {
+      setContentStatus('irrelevant')
+      setContentFeedback('This is not detailed enough to check. Enter an item title and briefly say where or how it was lost or found.')
+      toast.error('Please add a clearer item title and description')
       return
     }
-    setStep(2)
+
+    setContentStatus('checking')
+    try {
+      const content = new FormData()
+      content.append('title', title.trim())
+      content.append('description', description.trim())
+      if (photo) content.append('photo', photo)
+      const { data } = await client.post('/api/reports/check-content', content, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setContentConfidence(typeof data.confidence === 'number' ? data.confidence : null)
+      setContentFeedback(data.message || '')
+      if (data.relevant === false) {
+        setContentStatus('irrelevant')
+        toast.error(data.message || 'This content is not relevant to a lost/found report')
+        return
+      }
+      if (data.relevant !== true) {
+        setContentStatus('unavailable')
+        setContentFeedback('The relevance check is unavailable. Please try again shortly.')
+        toast.error('The relevance check is unavailable. Please try Next again shortly.')
+        return
+      }
+      setContentStatus('relevant')
+      setStep(2)
+    } catch (err: any) {
+      setContentStatus('unavailable')
+      setContentFeedback('The relevance check failed. Please try again.')
+      toast.error(err.response?.data?.error || 'The content check failed. Please try again.')
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -121,6 +125,7 @@ export default function ReportPage() {
       if (campusId) form.append('campus_id', campusId)
       if (location) form.append('location', location)
       if (eventDate) form.append('event_date', eventDate)
+      if (eventTime) form.append('event_time', eventTime)
       if (contactEmail) form.append('contact_email', contactEmail)
       if (photo) form.append('photo', photo)
 
@@ -132,17 +137,31 @@ export default function ReportPage() {
         return
       }
 
-      setMatches(Array.isArray(data.matches) ? data.matches : [])
+      setReportId(data.report.id)
+      setMatches([])
       setSubmitted(true)
-      if (Array.isArray(data.matches) && data.matches.length > 0) {
-        toast.success(`${data.matches.length} possible match${data.matches.length > 1 ? 'es' : ''} found`)
-      } else {
-        toast.success('No matching item found yet, so your report has been posted')
-      }
+      toast.success('Your report has been posted. You can now check for matches.')
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to post report')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleFindMatches() {
+    if (!reportId) return
+    setCheckingMatches(true)
+    try {
+      const { data } = await client.post(`/api/reports/${reportId}/match`)
+      const found = Array.isArray(data.matches) ? data.matches : []
+      setMatches(found)
+      setMatchChecked(true)
+      if (found.length > 0) toast.success(`${found.length} possible match${found.length > 1 ? 'es' : ''} found`)
+      else toast.success('No matching item found yet, so your report has been posted')
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Matching is temporarily unavailable. Your report is still posted.')
+    } finally {
+      setCheckingMatches(false)
     }
   }
 
@@ -153,13 +172,15 @@ export default function ReportPage() {
           {matches.length > 0 ? <Sparkles className="mt-0.5 shrink-0 text-[#22c55e]" size={24} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-blue-300" size={24} />}
           <div>
             <p className={`font-semibold ${matches.length > 0 ? 'text-[#22c55e]' : 'text-blue-200'}`}>
-              {matches.length > 0 ? 'Your report is live and possible matches were found' : 'No matching item found yet, so your report has been posted'}
+              {matches.length > 0 ? 'Your report is live and possible matches were found' : matchChecked ? 'No matching item found yet, so your report has been posted' : 'Your report has been posted successfully'}
             </p>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              {matches.length > 0 ? 'Review the suggested matches below. You can also browse all reports.' : 'Other students can now find your report. We will keep it available for future matching.'}
+              {matches.length > 0 ? 'Review the suggested matches below. You can also browse all reports.' : matchChecked ? 'Other students can now find your report. We will keep it available for future matching.' : 'Click the button below to check for a possible matching item.'}
             </p>
           </div>
         </div>
+
+        {!matchChecked && matches.length === 0 && <button onClick={handleFindMatches} disabled={checkingMatches} className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white hover:bg-[#16a34a] disabled:opacity-50">{checkingMatches && <Loader2 className="animate-spin" size={17} />}{checkingMatches ? 'Finding possible matches…' : 'Find possible matches'}</button>}
 
         {matches.length > 0 && (
           <div className="mb-6 space-y-4">
@@ -209,6 +230,8 @@ export default function ReportPage() {
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} required rows={5} placeholder="Describe the item, colour, brand, distinguishing marks, and what happened…" className="w-full resize-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 py-3 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" />
             </div>
 
+            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Picture <span className="text-xs font-normal text-[#64748b]">(Optional)</span></label><label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[#2d3148] bg-[#1a1d2e] p-6 transition-colors hover:border-[#22c55e]">{photoPreview ? <img src={photoPreview} alt="selected item preview" className="max-h-40 rounded-lg object-contain" /> : <><Upload size={24} className="text-[#4b5563]" /><span className="text-sm text-[#64748b]">Click or drag to upload a picture</span><span className="text-xs text-[#4b5563]">JPG, PNG, WEBP, or GIF up to 5MB</span></>}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhotoChange} /></label><p className="mt-1 text-xs text-[#64748b]">Next checks your text and confirms the picture is a valid supported image before showing more fields.</p></div>
+
             <div className={`rounded-xl border p-4 ${contentStatus === 'irrelevant' ? 'border-red-400/30 bg-red-400/10' : contentStatus === 'relevant' ? 'border-[#22c55e]/30 bg-[#22c55e]/10' : 'border-[#2d3148] bg-[#1a1d2e]'}`}>
               <div className="flex items-start gap-3">
                 {contentStatus === 'checking' && <Loader2 className="mt-0.5 shrink-0 animate-spin text-[#f59e0b]" size={18} />}
@@ -220,18 +243,18 @@ export default function ReportPage() {
                     {contentStatus === 'checking' && 'Checking whether this describes a lost or found item…'}
                     {contentStatus === 'relevant' && `Looks relevant${contentConfidence ? ` (${Math.round(contentConfidence * 100)}% confidence)` : ''}`}
                     {contentStatus === 'irrelevant' && 'This text does not look like a lost or found report'}
-                    {contentStatus === 'idle' && 'Live relevance check'}
+                    {contentStatus === 'idle' && 'Ready for relevance check'}
                     {contentStatus === 'unavailable' && 'Live check unavailable — the server will check again when you post'}
                   </p>
                   <p className="mt-1 text-xs text-[#94a3b8]">
-                    {contentStatus === 'irrelevant' ? 'Add item details such as the object, colour, brand, or where it was lost/found.' : 'Enter at least 5 title characters and 20 description characters for an automatic check.'}
+                    {contentStatus === 'irrelevant' ? (contentFeedback || 'This content is not relevant to a lost/found report. Enter an item title and description about where it was lost or found.') : contentStatus === 'unavailable' ? contentFeedback : 'Click Next to check the title, description, and optional picture before continuing.'}
                   </p>
                 </div>
               </div>
             </div>
 
-            <button type="button" onClick={continueToDetails} disabled={contentStatus === 'checking' || contentStatus === 'irrelevant'} className="w-full rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#16a34a] disabled:cursor-not-allowed disabled:opacity-50">
-              Continue to campus and contact details
+            <button type="button" onClick={continueToDetails} disabled={contentStatus === 'checking'} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#16a34a] disabled:cursor-not-allowed disabled:opacity-50">
+              {contentStatus === 'checking' && <Loader2 className="animate-spin" size={17} />} {contentStatus === 'checking' ? 'Checking content…' : 'Next — check and continue'}
             </button>
           </>
         ) : (
@@ -242,21 +265,21 @@ export default function ReportPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">University</label><div className="relative"><select value={uniId} onChange={(e) => { setUniId(e.target.value); setCampusId('') }} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none"><option value="">Select university</option>{universities.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Campus</label><div className="relative"><select value={campusId} onChange={(e) => setCampusId(e.target.value)} disabled={!uniId} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none disabled:opacity-40"><option value="">Select campus</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">University <span className="text-[#ef4444]">*</span></label><div className="relative"><select required value={uniId} onChange={(e) => { setUniId(e.target.value); setCampusId('') }} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none"><option value="">Select university</option>{universities.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Campus <span className="text-[#ef4444]">*</span></label><div className="relative"><select required value={campusId} onChange={(e) => setCampusId(e.target.value)} disabled={!uniId} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none disabled:opacity-40"><option value="">Select campus</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Category</label><div className="relative"><select value={category} onChange={(e) => setCategory(e.target.value)} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none">{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Date of Incident</label><input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
+              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Date of Incident <span className="text-[#ef4444]">*</span></label><input required type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
             </div>
 
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Specific Location on Campus</label><input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Near Central Library / C-Block stairs" className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" /></div>
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Contact Email</label><input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /><p className="mt-1 text-xs text-[#4b5563]">Shown only to logged-in users who contact you.</p></div>
+            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Time of Incident <span className="text-[#ef4444]">*</span></label><input required type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
 
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Photo (Optional)</label><label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[#2d3148] bg-[#1a1d2e] p-6 transition-colors hover:border-[#22c55e]">{photoPreview ? <img src={photoPreview} alt="preview" className="max-h-40 rounded-lg object-contain" /> : <><Upload size={24} className="text-[#4b5563]" /><span className="text-sm text-[#64748b]">Click or drag to upload</span><span className="text-xs text-[#4b5563]">PNG, JPG, WEBP up to 5MB</span></>}<input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} /></label></div>
+            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Specific Location on Campus <span className="text-[#ef4444]">*</span></label><input required type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Near Central Library / C-Block stairs" className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 py-3 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" /></div>
+            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Contact Email <span className="text-[#ef4444]">*</span></label><input required type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /><p className="mt-1 text-xs text-[#4b5563]">Shown only to logged-in users who contact you.</p></div>
 
-            <div className="flex gap-3"><button type="button" onClick={() => setStep(1)} className="rounded-xl border border-[#2d3148] px-5 py-3 text-sm text-[#94a3b8] hover:text-white">Back</button><button type="submit" disabled={submitting} className={`flex-1 rounded-xl py-3 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${reportType === 'Lost' ? 'bg-[#ef4444] hover:bg-red-600' : 'bg-[#22c55e] hover:bg-[#16a34a]'}`}>{submitting ? 'Checking matches & posting…' : 'Check matches & post report'}</button></div>
+            <div className="flex gap-3"><button type="button" onClick={() => setStep(1)} className="rounded-xl border border-[#2d3148] px-5 py-3 text-sm text-[#94a3b8] hover:text-white">Back</button><button type="submit" disabled={submitting} className={`flex-1 rounded-xl py-3 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${reportType === 'Lost' ? 'bg-[#ef4444] hover:bg-red-600' : 'bg-[#22c55e] hover:bg-[#16a34a]'}`}>{submitting ? 'Posting report…' : 'Post report'}</button></div>
           </>
         )}
       </form>

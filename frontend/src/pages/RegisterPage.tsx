@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 export default function RegisterPage() {
   const { register, user } = useAuth()
   const navigate            = useNavigate()
+  const location            = useLocation()
   const [name,      setName]      = useState('')
   const [email,     setEmail]     = useState('')
   const [password,  setPassword]  = useState('')
@@ -24,7 +25,8 @@ export default function RegisterPage() {
     try {
       await register(name, email, password)
       toast.success('Account created! Welcome to BagCheck.')
-      navigate('/browse')
+      const returnTo = new URLSearchParams(location.search).get('returnTo')
+      navigate(returnTo && returnTo.startsWith('/') ? returnTo : '/browse')
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Registration failed')
     } finally {

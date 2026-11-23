@@ -6,6 +6,7 @@
     { "path": "/report", "title": "Report an Item" },
     { "path": "/login", "title": "Log In" },
     { "path": "/register", "title": "Create Account" },
-    { "path": "/dashboard", "title": "My Dashboard" }
+    { "path": "/dashboard", "title": "My Dashboard" },
+    { "path": "/how-it-works", "title": "How It Works" }
   ]
 }

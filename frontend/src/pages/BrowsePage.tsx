@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Search, SlidersHorizontal, Plus, RefreshCw } from 'lucide-react'
 import client from '../api/client'
 import ReportCard from '../components/ReportCard'
 
 interface University { id: number; name: string; short_name: string; campuses: { id: number; name: string; city: string }[] }
-interface Report { id: number; type: 'Lost' | 'Found'; title: string; description: string; category: string; university_name: string; campus_name: string; location: string; event_date: string; created_at: string; photo_url?: string; status: string }
+interface Report { id: number; type: 'Lost' | 'Found'; title: string; description: string; category: string; university_id?: number; campus_id?: number; university_name: string; campus_name: string; location: string; event_date: string; created_at: string; photo_url?: string; status: string }
 
 const CATEGORIES = ['All', 'Electronics', 'Wallets & Keys', 'Student Cards & IDs', 'Books & Notes', 'General']
 const DATE_RANGES = [{ label: 'All Time', value: 'all' }, { label: 'Past 7 days', value: '7d' }, { label: 'Past 30 days', value: '30d' }]
 
 export default function BrowsePage() {
-  const navigate = useNavigate()
-
   const [reports, setReports]           = useState<Report[]>([])
   const [universities, setUniversities] = useState<University[]>([])
   const [loading, setLoading]           = useState(true)
+  const [error, setError]               = useState('')
+  const [refreshTick, setRefreshTick]   = useState(0)
 
   const [keyword,       setKeyword]       = useState('')
   const [typeFilter,    setTypeFilter]    = useState<'All' | 'Lost' | 'Found'>('All')
@@ -32,6 +32,7 @@ export default function BrowsePage() {
 
   async function fetchReports() {
     setLoading(true)
+    setError('')
     try {
       const params: Record<string, string> = {}
       if (keyword)              params.keyword       = keyword
@@ -40,21 +41,35 @@ export default function BrowsePage() {
       if (campusId)             params.campus_id     = campusId
       if (category !== 'All')   params.category      = category
       if (dateRange !== 'all')  params.dateRange     = dateRange
+      params.limit = '50'
 
       const { data } = await client.get('/api/reports', { params })
-      setReports(data.data || [])
+      const serverReports = Array.isArray(data.data) ? data.data : []
+      const normalizedKeyword = keyword.trim().toLowerCase()
+      const cutoff = dateRange === '7d' ? Date.now() - 7 * 24 * 60 * 60 * 1000 : dateRange === '30d' ? Date.now() - 30 * 24 * 60 * 60 * 1000 : null
+      const visibleReports = serverReports.filter((report: Report) => {
+        const matchesKeyword = !normalizedKeyword || `${report.title} ${report.description}`.toLowerCase().includes(normalizedKeyword)
+        const matchesType = typeFilter === 'All' || report.type === typeFilter
+        const matchesUniversity = !uniId || String(report.university_id) === uniId
+        const matchesCampus = !campusId || String(report.campus_id) === campusId
+        const matchesCategory = category === 'All' || report.category === category
+        const matchesDate = !cutoff || new Date(report.created_at).getTime() >= cutoff
+        return matchesKeyword && matchesType && matchesUniversity && matchesCampus && matchesCategory && matchesDate
+      })
+      setReports(visibleReports)
     } catch {
       setReports([])
+      setError('Could not load reports. Make sure the BagCheck backend is running and try again.')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => { client.get('/api/universities').then(({ data }) => setUniversities(data)) }, [])
-  useEffect(() => { fetchReports() }, [typeFilter, uniId, campusId, category, dateRange]) // eslint-disable-line
+  useEffect(() => { fetchReports() }, [typeFilter, uniId, campusId, category, dateRange, refreshTick]) // eslint-disable-line
 
   function handleSearch(e: React.FormEvent) { e.preventDefault(); fetchReports() }
-  function clearFilters() { setKeyword(''); setTypeFilter('All'); setUniId(''); setCampusId(''); setCategory('All'); setDateRange('all') }
+  function clearFilters() { setKeyword(''); setTypeFilter('All'); setUniId(''); setCampusId(''); setCategory('All'); setDateRange('all'); setRefreshTick((value) => value + 1) }
 
   return (
     <main className="mx-auto max-w-7xl px-5 pb-16 pt-8 sm:px-8">
@@ -120,7 +135,7 @@ export default function BrowsePage() {
           <div className="flex h-10 items-center gap-1 rounded-xl border border-[#2d3148] bg-[#0f1117] p-1">
             {(['All', 'Lost', 'Found'] as const).map((t) => (
               <button key={t} onClick={() => setTypeFilter(t)}
-                className={`flex-1 rounded-lg text-xs font-semibold transition-colors ${typeFilter === t ? 'bg-[#1a1d2e] text-white shadow' : 'text-[#4b5563] hover:text-white'}`}>
+                className={`flex-1 rounded-lg px-2 text-xs font-semibold transition-colors ${typeFilter === t ? 'bg-[#22c55e] text-white shadow' : 'text-[#94a3b8] hover:bg-[#1a1d2e] hover:text-white'}`}>
                 {t}
               </button>
             ))}
@@ -139,6 +154,8 @@ export default function BrowsePage() {
         </div>
       </div>
 
+      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-200"><span>{error}</span><button onClick={() => setRefreshTick((value) => value + 1)} className="font-semibold underline">Retry</button></div>}
+
       {/* Results count */}
       <p className="mb-4 text-sm text-[#94a3b8]">
         <span className="font-semibold text-white">{reports.length}</span> {reports.length === 1 ? 'report' : 'reports'}
@@ -153,7 +170,7 @@ export default function BrowsePage() {
         </div>
       ) : reports.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {reports.map((r) => <ReportCard key={r.id} report={r} onOpen={(id) => navigate(`/items/${id}`)} />)}
+          {reports.map((r) => <ReportCard key={r.id} report={r} />)}
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-[#2d3148] bg-[#1a1d2e] px-6 py-16 text-center">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { Mail, MapPin, Building, Calendar, Tag, ArrowLeft, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client, { assetUrl } from '../api/client'
@@ -9,7 +9,7 @@ import MatchCard from '../components/MatchCard'
 interface Report {
   id: number; type: 'Lost'|'Found'; title: string; description: string
   category: string; university_name: string; campus_name: string
-  location: string; event_date: string; created_at: string
+  location: string; event_date: string; event_time?: string; created_at: string
   photo_url?: string; status: string; contact_email?: string
   user_id: number; user_name: string; matches: any[]
 }
@@ -22,6 +22,8 @@ export default function ItemDetailPage() {
   const { id }              = useParams()
   const { user }            = useAuth()
   const navigate            = useNavigate()
+  const location            = useLocation()
+  const openedFromBrowse    = location.state?.fromBrowse === true
   const [report, setReport] = useState<Report | null>(null)
   const [matches, setMatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,13 +73,22 @@ export default function ItemDetailPage() {
   const isLost   = report.type === 'Lost'
   const isOwner  = user && user.id === report.user_id
 
-  return (
-    <div className="mx-auto max-w-3xl px-5 py-10">
-      <button onClick={() => navigate(-1)} className="mb-6 flex items-center gap-2 text-sm text-[#94a3b8] hover:text-white transition-colors">
-        <ArrowLeft size={16} /> Back
-      </button>
+  function closeDetails() {
+    if (openedFromBrowse) navigate(-1)
+    else navigate('/browse')
+  }
 
-      <article className="overflow-hidden rounded-2xl border border-[#2d3148] bg-[#1a1d2e]">
+  return (
+    <div
+      className={openedFromBrowse ? 'fixed inset-0 z-[60] overflow-y-auto bg-black/70 px-4 py-6 sm:px-8 sm:py-10' : 'mx-auto max-w-3xl px-5 py-10'}
+      onClick={(event) => { if (event.target === event.currentTarget && openedFromBrowse) closeDetails() }}
+    >
+      <div className={openedFromBrowse ? 'mx-auto max-w-3xl' : ''}>
+        <button onClick={closeDetails} className="mb-6 flex items-center gap-2 text-sm text-[#94a3b8] hover:text-white transition-colors">
+          <ArrowLeft size={16} /> {openedFromBrowse ? 'Close details' : 'Back to browse'}
+        </button>
+
+      <article className="overflow-hidden rounded-2xl border border-[#2d3148] bg-[#1a1d2e] shadow-2xl shadow-black/40">
         {report.photo_url && (
           <img src={assetUrl(report.photo_url)} alt={report.title} className="max-h-72 w-full object-cover" />
         )}
@@ -122,6 +133,12 @@ export default function ItemDetailPage() {
                 <div><dt className="text-xs text-[#4b5563]">Date</dt><dd className="text-sm font-semibold">{fmt(report.event_date)}</dd></div>
               </div>
             )}
+            {report.event_time && (
+              <div className="flex items-start gap-2">
+                <Calendar size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
+                <div><dt className="text-xs text-[#4b5563]">Time</dt><dd className="text-sm font-semibold">{report.event_time}</dd></div>
+              </div>
+            )}
             {report.category && (
               <div className="flex items-start gap-2">
                 <Tag size={15} className="mt-0.5 shrink-0 text-[#4b5563]" />
@@ -140,9 +157,12 @@ export default function ItemDetailPage() {
                 </a>
               ) : <p className="text-sm text-[#4b5563]">No contact email provided.</p>
             ) : (
-              <div className="flex items-center gap-3">
-                <p className="text-sm text-[#64748b] blur-sm select-none">hidden@example.com</p>
-                <Link to="/login" className="rounded-lg bg-[#22c55e] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#16a34a]">Login to Contact</Link>
+              <div>
+                <p className="text-sm text-[#94a3b8]">The contact email is hidden from public visitors.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link onClick={() => toast('Please log in to view this reporter’s contact details.')} to={`/login?returnTo=/items/${report.id}`} className="rounded-lg bg-[#22c55e] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#16a34a]">Log in to contact</Link>
+                  <Link onClick={() => toast('Create an account to contact this reporter.')} to={`/register?returnTo=/items/${report.id}`} className="rounded-lg border border-[#2d3148] px-3 py-1.5 text-xs font-semibold text-[#cbd5e1] hover:border-[#22c55e] hover:text-white">Register</Link>
+                </div>
               </div>
             )}
           </div>
@@ -179,6 +199,7 @@ export default function ItemDetailPage() {
           </div>
         </section>
       )}
+      </div>
     </div>
   )
 }

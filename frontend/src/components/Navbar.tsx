@@ -32,9 +32,9 @@ export default function Navbar() {
           <Link to="/browse" className="hover:text-white transition-colors">
             Browse
           </Link>
-          <a href="#how" className="hover:text-white transition-colors">
+          <Link to="/how-it-works" className="hover:text-white transition-colors">
             How It Works
-          </a>
+          </Link>
         </div>
 
         {/* Desktop auth */}
@@ -98,9 +98,9 @@ export default function Navbar() {
           >
             Browse
           </Link>
-          <a href="#how" className="text-sm text-[#94a3b8] hover:text-white" onClick={() => setMenuOpen(false)}>
+          <Link to="/how-it-works" className="text-sm text-[#94a3b8] hover:text-white" onClick={() => setMenuOpen(false)}>
             How It Works
-          </a>
+          </Link>
           {user ? (
             <>
               <Link

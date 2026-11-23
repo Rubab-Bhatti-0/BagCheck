@@ -123,6 +123,30 @@ Multer is not a cloud-storage link. For production durable image storage, use on
 
 ## ML service
 
+### Windows start commands
+
+Open a new PowerShell terminal and run these commands from the repository root:
+
+```powershell
+cd "D:\Rubab\Git Repos\BagCheck\ml"
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m moderate.train
+python -m uvicorn api:app --host 127.0.0.1 --port 8000
+```
+
+Keep this terminal running. In another PowerShell terminal verify the service:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8000/health
+```
+
+The training command creates `ml/moderate/model.pkl`. Run it again whenever the moderation CSV dataset changes. If PowerShell blocks activation, run `Set-ExecutionPolicy -Scope Process Bypass` in that terminal only, then activate the environment again. The backend must have `ML_SERVICE_URL=http://localhost:8000` in `backend/.env`.
+
+The ML service checks the title and the combined title-description text. A missing trained model returns an unavailable decision, so the backend will keep a report pending instead of publishing it.
+
 The backend calls:
 
 ```text

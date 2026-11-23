@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { assetUrl } from '../api/client'
 
 interface Report {
@@ -10,21 +11,19 @@ interface Report {
   campus_name: string
   location: string
   event_date: string
+  event_time?: string
   created_at: string
   photo_url?: string
   status: string
 }
 
-interface Props {
-  report: Report
-  onOpen: (id: number) => void
-}
+interface Props { report: Report }
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function ReportCard({ report, onOpen }: Props) {
+export default function ReportCard({ report }: Props) {
   const isLost = report.type === 'Lost'
   return (
     <article className="flex flex-col overflow-hidden rounded-2xl border border-[#2d3148] bg-[#1a1d2e] transition hover:-translate-y-0.5 hover:border-[#3d4168] hover:shadow-xl hover:shadow-black/30">
@@ -44,22 +43,24 @@ export default function ReportCard({ report, onOpen }: Props) {
           <span className="rounded-full border border-[#2d3148] px-2 py-0.5 text-xs text-[#64748b]">{report.category}</span>
         </div>
         <h2 className="mb-1 text-base font-semibold leading-snug text-white line-clamp-2">
-          <button className="text-left hover:text-[#22c55e] transition-colors" onClick={() => onOpen(report.id)}>
+          <Link to={`/items/${report.id}`} state={{ fromBrowse: true }} className="text-left hover:text-[#22c55e] transition-colors">
             {report.title}
-          </button>
+          </Link>
         </h2>
         <p className="mb-3 text-xs text-[#64748b] line-clamp-2">{report.description}</p>
         <div className="mt-auto space-y-1 text-xs text-[#64748b]">
           <p>📍 {report.location || report.campus_name}</p>
           <p>🏫 {report.university_name}</p>
           <p>📅 {report.event_date ? formatDate(report.event_date) : '—'}</p>
+          {report.event_time && <p>🕒 {report.event_time}</p>}
         </div>
-        <button
-          onClick={() => onOpen(report.id)}
+        <Link
+          to={`/items/${report.id}`}
+          state={{ fromBrowse: true }}
           className={`mt-4 w-full rounded-xl py-2 text-sm font-semibold transition-colors ${isLost ? 'border border-[#ef4444]/30 text-[#ef4444] hover:bg-[#ef4444]/10' : 'border border-[#22c55e]/30 text-[#22c55e] hover:bg-[#22c55e]/10'}`}
         >
           View Details
-        </button>
+        </Link>
       </div>
     </article>
   )
