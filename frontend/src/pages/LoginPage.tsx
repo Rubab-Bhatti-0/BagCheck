@@ -33,42 +33,42 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center px-5">
+    <main className="page-shell flex min-h-[76vh] justify-center py-8 sm:py-14">
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-[#2d3148] bg-[#1a1d2e] p-8">
-          <h1 className="mb-1 text-2xl font-bold">Welcome back</h1>
-          <p className="mb-6 text-sm text-[#94a3b8]">Log in to post or contact about items.</p>
+        <div className="panel p-5 sm:p-8">
+          <h1 className="page-title mb-2">Welcome back</h1>
+          <p className="mb-6 text-sm leading-6 text-muted">Log in to post and manage your reports.</p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Email</label>
+              <label htmlFor="email" className="field-label">Email</label>
               <div className="relative">
-                <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4b5563]" size={16} />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com"
-                  className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#0f1117] pl-10 pr-4 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" />
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" size={16} />
+                <input id="email" autoComplete="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com"
+                  className="field pl-10" />
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Password</label>
+              <label htmlFor="password" className="field-label">Password</label>
               <div className="relative">
-                <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4b5563]" size={16} />
-                <input type={showPass ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
-                  className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#0f1117] pl-10 pr-10 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" />
-                <button type="button" onClick={() => setShowPass((v) => !v)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#4b5563] hover:text-white">
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" size={16} />
+                <input id="password" autoComplete="current-password" type={showPass ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
+                  className="field pl-10 pr-10" />
+                <button type="button" onClick={() => setShowPass((v) => !v)} aria-label={showPass ? 'Hide password' : 'Show password'} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink">
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
             <button type="submit" disabled={loading}
-              className="mt-2 w-full rounded-xl bg-[#22c55e] py-2.5 text-sm font-semibold text-white hover:bg-[#16a34a] disabled:opacity-50 transition-colors">
+              className="btn btn-primary mt-2 w-full">
               {loading ? 'Logging in…' : 'Log In'}
             </button>
           </form>
-          <p className="mt-5 text-center text-sm text-[#94a3b8]">
+          <p className="mt-5 text-center text-sm text-muted">
             No account?{' '}
-            <Link to="/register" className="font-semibold text-[#22c55e] hover:underline">Register free</Link>
+            <Link to={{ pathname: '/register', search: location.search }} className="font-semibold text-accent hover:underline">Create an account</Link>
           </p>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

@@ -1,7 +1,7 @@
 {
   "routes": [
-    { "path": "/", "title": "BagCheck" },
-    { "path": "/browse", "title": "Browse Lost & Found" },
+    { "path": "/", "title": "Back2U" },
+    { "path": "/browse", "title": "Browse reports" },
     { "path": "/items/:id", "title": "Item Details" },
     { "path": "/report", "title": "Report an Item" },
     { "path": "/login", "title": "Log In" },

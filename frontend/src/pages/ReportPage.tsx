@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, ChevronDown, Info, Loader2, Sparkles, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/auth'
 import client, { apiErrorMessage } from '../api/client'
@@ -21,7 +21,6 @@ export default function ReportPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [contentStatus, setContentStatus] = useState<ContentStatus>('idle')
-  const [contentConfidence, setContentConfidence] = useState<number | null>(null)
   const [contentFeedback, setContentFeedback] = useState('')
   const [category, setCategory] = useState('General')
   const [uniId, setUniId] = useState('')
@@ -50,7 +49,7 @@ export default function ReportPage() {
   }, [])
 
   useEffect(() => {
-    if (!authLoading && !user) navigate('/login')
+    if (!authLoading && !user) navigate('/login?returnTo=/report', { replace: true })
   }, [user, authLoading, navigate])
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -81,7 +80,6 @@ export default function ReportPage() {
       content.append('description', description.trim())
       if (photo) content.append('photo', photo)
       const { data } = await client.post('/api/reports/check-content', content, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setContentConfidence(typeof data.confidence === 'number' ? data.confidence : null)
       setContentFeedback(data.message || '')
       if (data.relevant === false) {
         setContentStatus('irrelevant')
@@ -105,6 +103,10 @@ export default function ReportPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (step === 1) {
+      await continueToDetails()
+      return
+    }
     if (!title.trim() || !description.trim()) {
       toast.error('Title and description are required')
       setStep(1)
@@ -130,6 +132,7 @@ export default function ReportPage() {
         toast.error('This report was rejected because it does not appear to be a lost/found item.', { duration: 6000 })
         setStep(1)
         setContentStatus('irrelevant')
+        setContentFeedback('Describe the item and where it went missing or turned up.')
         return
       }
 
@@ -163,122 +166,165 @@ export default function ReportPage() {
 
   if (submitted) {
     return (
-      <div className="mx-auto max-w-2xl px-5 py-10">
-        <div className={`mb-6 flex items-start gap-3 rounded-2xl border p-5 ${matches.length > 0 ? 'border-[#22c55e]/30 bg-[#22c55e]/10' : 'border-blue-400/30 bg-blue-400/10'}`}>
-          {matches.length > 0 ? <Sparkles className="mt-0.5 shrink-0 text-[#22c55e]" size={24} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-blue-300" size={24} />}
-          <div>
-            <p className={`font-semibold ${matches.length > 0 ? 'text-[#22c55e]' : 'text-blue-200'}`}>
-              {matches.length > 0 ? 'Your report is live and possible matches were found' : matchChecked ? 'No matching item found yet, so your report has been posted' : 'Your report has been posted successfully'}
-            </p>
-            <p className="mt-1 text-sm text-[#94a3b8]">
-              {matches.length > 0 ? 'Review the suggested matches below. You can also browse all reports.' : matchChecked ? 'Other students can now find your report. We will keep it available for future matching.' : 'Click the button below to check for a possible matching item.'}
-            </p>
-          </div>
+      <main className="page-shell max-w-2xl py-10 sm:py-14">
+        <div className="panel p-6 sm:p-8">
+          <CheckCircle2 size={29} className="mb-4 text-accent" aria-hidden="true" />
+          <h1 className="page-title">Report posted</h1>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            {matchChecked && matches.length === 0
+              ? 'There are no possible matches yet. Your report is visible on the board.'
+              : 'Other students can now find your report on the campus board.'}
+          </p>
+          {!matchChecked && (
+            <button type="button" onClick={handleFindMatches} disabled={checkingMatches} className="btn btn-primary mt-5">
+              {checkingMatches && <Loader2 className="animate-spin" size={17} aria-hidden="true" />}
+              {checkingMatches ? 'Looking for matches…' : 'Find possible matches'}
+            </button>
+          )}
         </div>
-
-        {!matchChecked && matches.length === 0 && <button onClick={handleFindMatches} disabled={checkingMatches} className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white hover:bg-[#16a34a] disabled:opacity-50">{checkingMatches && <Loader2 className="animate-spin" size={17} />}{checkingMatches ? 'Finding possible matches…' : 'Find possible matches'}</button>}
 
         {matches.length > 0 && (
-          <div className="mb-6 space-y-4">
-            {matches.map((match) => <MatchCard key={match.report_id} match={match} onView={(id) => navigate(`/items/${id}`)} />)}
-          </div>
+          <section className="mt-8">
+            <h2 className="mb-4 font-display text-2xl">Possible matches</h2>
+            <div className="space-y-3">
+              {matches.map((match) => <MatchCard key={match.report_id} match={match} onView={(id) => navigate('/items/' + id)} />)}
+            </div>
+          </section>
         )}
 
-        <div className="flex gap-3">
-          <button onClick={() => navigate('/browse')} className="flex-1 rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white hover:bg-[#16a34a] transition-colors">
-            Browse reports
-          </button>
-          <button onClick={() => navigate('/dashboard')} className="flex-1 rounded-xl border border-[#2d3148] py-3 text-sm text-[#94a3b8] hover:text-white transition-colors">
-            My dashboard
-          </button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button type="button" onClick={() => navigate('/browse')} className="btn btn-secondary">Browse reports</button>
+          <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary">My reports</button>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-5 py-10">
-      <div className="mb-6">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#22c55e]">Step {step} of 2</p>
-        <h1 className="mb-1 text-2xl font-bold">Report an Item</h1>
-        <p className="text-sm text-[#94a3b8]">First describe the item. We check that it is relevant before you add the campus and contact details.</p>
+    <main className="page-shell grid max-w-5xl gap-7 py-8 sm:py-12 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-12">
+      <div>
+        <h1 className="page-title">Report an item</h1>
+        <p className="mt-3 max-w-sm text-sm leading-6 text-muted">
+          Tell students what to look for and where it went missing or turned up.
+        </p>
+        <ol aria-label="Report progress" className="mt-5 flex flex-wrap gap-2 lg:mt-7 lg:grid">
+          {['Item details', 'Campus & contact'].map((label, index) => (
+            <li key={label} aria-current={step === index + 1 ? 'step' : undefined}
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted aria-[current=step]:bg-found-tint aria-[current=step]:font-semibold aria-[current=step]:text-found">
+              <span className="grid size-6 place-items-center rounded-md border border-line bg-panel text-xs font-semibold">{index + 1}</span>
+              {label}
+            </li>
+          ))}
+        </ol>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="panel min-w-0 space-y-5 p-5 sm:p-7">
         {step === 1 ? (
           <>
-            <div className="grid grid-cols-2 gap-3">
-              {(['Lost', 'Found'] as const).map((type) => (
-                <button key={type} type="button" onClick={() => setReportType(type)} className={`rounded-2xl border p-4 text-left transition-colors ${reportType === type ? type === 'Lost' ? 'border-[#ef4444] bg-[#ef4444]/10' : 'border-[#22c55e] bg-[#22c55e]/10' : 'border-[#2d3148] bg-[#1a1d2e] hover:border-[#3d4168]'}`}>
-                  <p className={`text-sm font-bold ${reportType === type ? type === 'Lost' ? 'text-[#ef4444]' : 'text-[#22c55e]' : 'text-[#94a3b8]'}`}>{type === 'Lost' ? 'I Lost Something' : 'I Found Something'}</p>
-                  <p className="mt-1 text-xs text-[#64748b]">{type === 'Lost' ? 'Report a missing item' : 'Report an item you found'}</p>
-                </button>
-              ))}
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Item Title <span className="text-[#ef4444]">*</span></label>
-              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="e.g. Blue wireless earbuds in black case" className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Description <span className="text-[#ef4444]">*</span></label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} required rows={5} placeholder="Describe the item, colour, brand, distinguishing marks, and what happened…" className="w-full resize-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 py-3 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" />
-            </div>
-
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Picture <span className="text-xs font-normal text-[#64748b]">(Optional)</span></label><label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[#2d3148] bg-[#1a1d2e] p-6 transition-colors hover:border-[#22c55e]">{photoPreview ? <img src={photoPreview} alt="selected item preview" className="max-h-40 rounded-lg object-contain" /> : <><Upload size={24} className="text-[#4b5563]" /><span className="text-sm text-[#64748b]">Click or drag to upload a picture</span><span className="text-xs text-[#4b5563]">JPG, PNG, WEBP, or GIF up to 5MB</span></>}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhotoChange} /></label><p className="mt-1 text-xs text-[#64748b]">Next checks your text and confirms the picture is a valid supported image before showing more fields.</p></div>
-
-            <div className={`rounded-xl border p-4 ${contentStatus === 'irrelevant' ? 'border-red-400/30 bg-red-400/10' : contentStatus === 'relevant' ? 'border-[#22c55e]/30 bg-[#22c55e]/10' : 'border-[#2d3148] bg-[#1a1d2e]'}`}>
-              <div className="flex items-start gap-3">
-                {contentStatus === 'checking' && <Loader2 className="mt-0.5 shrink-0 animate-spin text-[#f59e0b]" size={18} />}
-                {contentStatus === 'relevant' && <CheckCircle2 className="mt-0.5 shrink-0 text-[#22c55e]" size={18} />}
-                {contentStatus === 'irrelevant' && <XCircle className="mt-0.5 shrink-0 text-red-300" size={18} />}
-                {(contentStatus === 'idle' || contentStatus === 'unavailable') && <Info className="mt-0.5 shrink-0 text-[#94a3b8]" size={18} />}
-                <div>
-                  <p className="text-sm font-semibold">
-                    {contentStatus === 'checking' && 'Checking whether this describes a lost or found item…'}
-                    {contentStatus === 'relevant' && `Looks relevant${contentConfidence ? ` (${Math.round(contentConfidence * 100)}% confidence)` : ''}`}
-                    {contentStatus === 'irrelevant' && 'This text does not look like a lost or found report'}
-                    {contentStatus === 'idle' && 'Ready for relevance check'}
-                    {contentStatus === 'unavailable' && 'Live check unavailable — the server will check again when you post'}
-                  </p>
-                  <p className="mt-1 text-xs text-[#94a3b8]">
-                    {contentStatus === 'irrelevant' ? (contentFeedback || 'This content is not relevant to a lost/found report. Enter an item title and description about where it was lost or found.') : contentStatus === 'unavailable' ? contentFeedback : 'Click Next to check the title, description, and optional picture before continuing.'}
-                  </p>
-                </div>
+            <fieldset>
+              <legend className="field-label">What happened?</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {(['Lost', 'Found'] as const).map((option) => (
+                  <label key={option} className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink has-checked:border-accent has-checked:bg-found-tint">
+                    <input type="radio" name="report-type" checked={reportType === option} onChange={() => setReportType(option)} className="accent-accent" />
+                    {option === 'Lost' ? 'I lost something' : 'I found something'}
+                  </label>
+                ))}
               </div>
+            </fieldset>
+
+            <div>
+              <label htmlFor="item-title" className="field-label">Item title</label>
+              <input id="item-title" className="field" value={title} onChange={(event) => setTitle(event.target.value)} required placeholder="e.g. Blue earbuds in a black case" />
+            </div>
+            <div>
+              <label htmlFor="item-description" className="field-label">Description</label>
+              <textarea id="item-description" className="field min-h-28 resize-y" required rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Include the color, brand, or a detail that would help someone recognize it." />
             </div>
 
-            <button type="button" onClick={continueToDetails} disabled={contentStatus === 'checking'} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22c55e] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#16a34a] disabled:cursor-not-allowed disabled:opacity-50">
-              {contentStatus === 'checking' && <Loader2 className="animate-spin" size={17} />} {contentStatus === 'checking' ? 'Checking content…' : 'Next — check and continue'}
+            <div>
+              <p className="field-label">Photo <span className="font-normal text-muted">(optional)</span></p>
+              <label className="flex min-h-24 cursor-pointer items-center gap-3 rounded-lg border border-dashed border-accent/50 bg-wash px-4 py-3 text-sm text-muted focus-within:outline-2 focus-within:outline-accent">
+                {photoPreview ? <img src={photoPreview} alt="Selected item" className="max-h-32 max-w-24 rounded-md object-contain sm:max-w-36" /> : <Upload size={21} className="shrink-0 text-accent" aria-hidden="true" />}
+                <span className="min-w-0 break-words">
+                  <span className="block font-semibold text-ink">{photo ? 'Change photo' : 'Choose a photo'}</span>
+                  <span className="mt-1 block text-xs">{photo ? photo.name : 'JPG, PNG, WEBP, or GIF up to 5 MB'}</span>
+                </span>
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={handlePhotoChange} />
+              </label>
+            </div>
+
+            {(contentStatus === 'irrelevant' || contentStatus === 'unavailable') && (
+              <p role="alert" className="rounded-lg bg-lost-tint p-3 text-sm leading-6 text-lost">{contentFeedback}</p>
+            )}
+
+            <button type="submit" disabled={contentStatus === 'checking'} className="btn btn-primary w-full sm:w-auto">
+              {contentStatus === 'checking' && <Loader2 className="animate-spin" size={17} aria-hidden="true" />}
+              {contentStatus === 'checking' ? 'Checking details…' : 'Continue to campus details'}
             </button>
           </>
         ) : (
           <>
-            <div className="flex items-center justify-between rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 p-4">
-              <div><p className="text-sm font-semibold text-[#22c55e]">Text checked and ready</p><p className="mt-1 text-xs text-[#94a3b8]">{title}</p></div>
-              <button type="button" onClick={() => setStep(1)} className="text-xs text-[#94a3b8] underline hover:text-white">Edit text</button>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-found-tint p-3 text-sm text-found">
+              <p className="inline-flex min-w-0 items-center gap-2"><CheckCircle2 size={17} className="shrink-0" aria-hidden="true" /> <span className="break-words font-semibold">{title}</span></p>
+              <button type="button" onClick={() => setStep(1)} className="shrink-0 font-medium underline underline-offset-3">Edit item details</button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">University <span className="text-[#ef4444]">*</span></label><div className="relative"><select required value={uniId} onChange={(e) => { setUniId(e.target.value); setCampusId('') }} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none"><option value="">Select university</option>{universities.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Campus <span className="text-[#ef4444]">*</span></label><div className="relative"><select required value={campusId} onChange={(e) => setCampusId(e.target.value)} disabled={!uniId} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none disabled:opacity-40"><option value="">Select campus</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="min-w-0">
+                <span className="field-label">University</span>
+                <select className="field" required value={uniId} onChange={(event) => { setUniId(event.target.value); setCampusId('') }}>
+                  <option value="">Select university</option>
+                  {universities.map((university) => <option key={university.id} value={university.id}>{university.name}</option>)}
+                </select>
+              </label>
+              <label className="min-w-0">
+                <span className="field-label">Campus</span>
+                <select className="field" required value={campusId} disabled={!uniId} onChange={(event) => setCampusId(event.target.value)}>
+                  <option value="">Select campus</option>
+                  {campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+                </select>
+              </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Category</label><div className="relative"><select value={category} onChange={(e) => setCategory(e.target.value)} className="h-11 w-full appearance-none rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-3 pr-8 text-sm text-white focus:border-[#22c55e] focus:outline-none">{REPORT_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#4b5563]" size={14} /></div></div>
-              <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Date of Incident <span className="text-[#ef4444]">*</span></label><input required type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
+            <label className="block">
+              <span className="field-label">Location on campus</span>
+              <input className="field" required value={location} onChange={(event) => setLocation(event.target.value)} placeholder="e.g. Library entrance" />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="min-w-0">
+                <span className="field-label">Date</span>
+                <input className="field" required type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} />
+              </label>
+              <label className="min-w-0">
+                <span className="field-label">Time</span>
+                <input className="field" required type="time" value={eventTime} onChange={(event) => setEventTime(event.target.value)} />
+              </label>
             </div>
 
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Time of Incident <span className="text-[#ef4444]">*</span></label><input required type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /></div>
+            <label className="block">
+              <span className="field-label">Category</span>
+              <select className="field" value={category} onChange={(event) => setCategory(event.target.value)}>
+                {REPORT_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
 
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Specific Location on Campus <span className="text-[#ef4444]">*</span></label><input required type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Near Central Library / C-Block stairs" className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 py-3 text-sm text-white placeholder:text-[#4b5563] focus:border-[#22c55e] focus:outline-none" /></div>
-            <div><label className="mb-1.5 block text-sm font-medium text-[#94a3b8]">Contact Email <span className="text-[#ef4444]">*</span></label><input required type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} className="h-11 w-full rounded-xl border border-[#2d3148] bg-[#1a1d2e] px-4 text-sm text-white focus:border-[#22c55e] focus:outline-none" /><p className="mt-1 text-xs text-[#4b5563]">Shown only to logged-in users who contact you.</p></div>
+            <div>
+              <label htmlFor="contact-email" className="field-label">Contact email</label>
+              <input id="contact-email" className="field" required type="email" value={contactEmail} aria-describedby="contact-note" onChange={(event) => setContactEmail(event.target.value)} />
+              <p id="contact-note" className="mt-1.5 text-xs text-muted">Your email stays hidden from the public board.</p>
+            </div>
 
-            <div className="flex gap-3"><button type="button" onClick={() => setStep(1)} className="rounded-xl border border-[#2d3148] px-5 py-3 text-sm text-[#94a3b8] hover:text-white">Back</button><button type="submit" disabled={submitting} className={`flex-1 rounded-xl py-3 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${reportType === 'Lost' ? 'bg-[#ef4444] hover:bg-red-600' : 'bg-[#22c55e] hover:bg-[#16a34a]'}`}>{submitting ? 'Posting report…' : 'Post report'}</button></div>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => setStep(1)} className="btn btn-secondary">Back</button>
+              <button type="submit" disabled={submitting} className="btn btn-primary">
+                {submitting ? 'Posting report…' : 'Post report'}
+              </button>
+            </div>
           </>
         )}
       </form>
-    </div>
+    </main>
   )
 }

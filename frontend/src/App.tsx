@@ -14,7 +14,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <div className="min-h-screen bg-[#0f1117] text-white">
+        <div className="min-h-screen bg-paper text-ink">
           <Navbar />
           <Routes>
             <Route path="/" element={<Navigate to="/browse" replace />} />
@@ -28,9 +28,9 @@ function App() {
           </Routes>
         </div>
         <Toaster
-          position="top-right"
+          position="bottom-right"
           toastOptions={{
-            style: { background: '#1a1d2e', color: '#fff', border: '1px solid #2d3148' },
+            style: { background: 'var(--color-panel)', color: 'var(--color-ink)', border: '1px solid var(--color-line)' },
           }}
         />
       </BrowserRouter>

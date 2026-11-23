@@ -1,40 +1,44 @@
-import { Link } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, Eye, FileSearch, LockKeyhole, MessageCircle, Search, ShieldCheck } from 'lucide-react'
+﻿import { Link } from 'react-router-dom'
+import { ArrowUpRight, CheckCircle2, CornerUpLeft, FilePlus2, Search } from 'lucide-react'
 
 const steps = [
-  { icon: FileSearch, title: 'Describe the item', text: 'Choose Lost or Found, then add a clear item title, description, and optional photo.' },
-  { icon: ShieldCheck, title: 'Pass the relevance check', text: 'BagCheck checks the title and description before asking for campus details, so unrelated posts are stopped early.' },
-  { icon: Search, title: 'Add where and when', text: 'Select the university and campus, then add the incident date, time, location, category, and contact email.' },
-  { icon: MessageCircle, title: 'Post and find matches', text: 'Your report is posted first. Click Find possible matches to compare it with opposite Lost or Found reports on the same campus.' },
+  { icon: Search, title: 'Check the board', text: 'Start by searching for the item or place. Narrow the board by university, campus, category, or date.' },
+  { icon: FilePlus2, title: 'Post what happened', text: 'Choose Lost or Found, describe the item, and add the location and date. A photo helps when you have one.' },
+  { icon: CornerUpLeft, title: 'Look for a match', text: 'After posting, check for a possible match from the same campus. Mark your report resolved once the item is returned.' },
 ]
 
 export default function HowItWorksPage() {
   return (
-    <main className="mx-auto max-w-5xl px-5 py-10 sm:px-8">
-      <section className="rounded-3xl border border-[#2d3148] bg-[#1a1d2e] p-7 sm:p-10">
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#22c55e]">BagCheck guide</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">How BagCheck works</h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-[#94a3b8]">A simple, campus-specific way to report missing items, help return things you find, and discover possible matches.</p>
-        <div className="mt-7 flex flex-wrap gap-3">
-          <Link to="/report" className="inline-flex items-center gap-2 rounded-xl bg-[#22c55e] px-5 py-3 text-sm font-semibold text-white hover:bg-[#16a34a]">Report an item <ArrowRight size={16} /></Link>
-          <Link to="/browse" className="rounded-xl border border-[#2d3148] px-5 py-3 text-sm font-semibold text-[#cbd5e1] hover:border-[#22c55e] hover:text-white">Browse reports</Link>
-        </div>
-      </section>
+    <main className="page-shell max-w-5xl py-10 sm:py-14">
+      <header className="max-w-2xl">
+        <h1 className="page-title">How Back2U works</h1>
+        <p className="mt-4 max-w-lg text-base leading-7 text-muted">
+          Start with the campus board. Search for your item or leave a report so other students know what to look for.
+        </p>
+      </header>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2">
+      <ol className="panel mt-8 divide-y divide-line">
         {steps.map(({ icon: Icon, title, text }, index) => (
-          <article key={title} className="rounded-2xl border border-[#2d3148] bg-[#1a1d2e] p-6">
-            <div className="flex items-start gap-4"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#22c55e]/15 text-[#22c55e]"><Icon size={20} /></span><div><p className="text-xs font-semibold uppercase tracking-widest text-[#64748b]">Step {index + 1}</p><h2 className="mt-1 text-lg font-bold">{title}</h2></div></div>
-            <p className="mt-4 text-sm leading-6 text-[#94a3b8]">{text}</p>
-          </article>
+          <li key={title} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 px-5 py-6 sm:gap-x-6 sm:px-7">
+            <span className="grid size-11 place-items-center rounded-lg bg-found-tint text-accent">
+              <Icon size={21} strokeWidth={1.7} aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="font-display text-2xl leading-tight tracking-tight">{index + 1}. {title}</h2>
+              <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted">{text}</p>
+            </div>
+          </li>
         ))}
-      </section>
+      </ol>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-[#2d3148] bg-[#13162a] p-5"><Eye className="text-[#22c55e]" size={20} /><h2 className="mt-3 font-semibold">Public details</h2><p className="mt-2 text-sm leading-6 text-[#94a3b8]">Everyone can browse approved active reports without an account.</p></div>
-        <div className="rounded-2xl border border-[#2d3148] bg-[#13162a] p-5"><LockKeyhole className="text-[#22c55e]" size={20} /><h2 className="mt-3 font-semibold">Protected contact</h2><p className="mt-2 text-sm leading-6 text-[#94a3b8]">Contact information stays hidden until a visitor logs in.</p></div>
-        <div className="rounded-2xl border border-[#2d3148] bg-[#13162a] p-5"><CheckCircle2 className="text-[#22c55e]" size={20} /><h2 className="mt-3 font-semibold">Resolve the report</h2><p className="mt-2 text-sm leading-6 text-[#94a3b8]">The owner can mark an item resolved when it has been returned.</p></div>
-      </section>
+      <p className="mt-5 flex items-start gap-2 text-sm leading-6 text-muted">
+        <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+        Anyone can browse. Sign in to post or manage your reports. Contact emails are kept off the public board.
+      </p>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link to="/browse" className="btn btn-primary">Browse reports <ArrowUpRight size={16} aria-hidden="true" /></Link>
+        <Link to="/report" className="btn btn-secondary">Report an item</Link>
+      </div>
     </main>
   )
 }

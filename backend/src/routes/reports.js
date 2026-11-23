@@ -29,7 +29,7 @@ async function sendRejectionEmail(to, title) {
     body: JSON.stringify({
       from: process.env.FROM_EMAIL,
       to: [to],
-      subject: 'BagCheck report could not be published',
+      subject: 'Back2U report could not be published',
       text: `Your report "${title}" was not published because it did not appear to describe a lost or found item.`,
     }),
   });

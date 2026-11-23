@@ -1,66 +1,81 @@
+﻿import { ArrowUpRight, Backpack, BookOpen, CalendarDays, IdCard, KeyRound, Laptop, MapPin, Package, Shirt, Watch } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { assetUrl } from '../api/client'
 
-interface Report {
+export interface ReportSummary {
   id: number
   type: 'Lost' | 'Found'
   title: string
   description: string
   category: string
-  university_name: string
-  campus_name: string
-  location: string
-  event_date: string
-  event_time?: string
-  created_at: string
-  photo_url?: string
-  status: string
+  university_name: string | null
+  campus_name: string | null
+  location: string | null
+  event_date: string | null
+  event_time?: string | null
+  photo_url?: string | null
 }
 
-interface Props { report: Report }
+const categoryIcons = new Map([
+  ['Electronics', <Laptop />],
+  ['Wallets & Keys', <KeyRound />],
+  ['Student Cards & IDs', <IdCard />],
+  ['Books & Notes', <BookOpen />],
+  ['Clothing', <Shirt />],
+  ['Bags', <Backpack />],
+  ['Accessories', <Watch />],
+])
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
+const reportDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
-export default function ReportCard({ report }: Props) {
-  const isLost = report.type === 'Lost'
+export default function ReportCard({ report }: { report: ReportSummary }) {
+  const location = report.location || report.campus_name
+  const eventDate = report.event_date ? new Date(report.event_date) : null
+  const date = eventDate && Number.isFinite(eventDate.getTime()) ? reportDate.format(eventDate) : null
+  const typeClass = report.type === 'Lost' ? 'status-lost' : 'status-found'
+
   return (
-    <article className="flex flex-col overflow-hidden rounded-2xl border border-[#2d3148] bg-[#1a1d2e] transition hover:-translate-y-0.5 hover:border-[#3d4168] hover:shadow-xl hover:shadow-black/30">
-      {report.photo_url ? (
-        <img src={assetUrl(report.photo_url)} alt={report.title} className="h-44 w-full object-cover" />
-      ) : (
-        <div className="flex h-44 w-full items-center justify-center bg-[#13162a] text-[#2d3148]">
-          <svg viewBox="0 0 48 48" fill="none" className="h-14 w-14"><rect x="8" y="14" width="32" height="24" rx="3" stroke="currentColor" strokeWidth="2"/><path d="M16 14v-2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="2"/><circle cx="24" cy="26" r="4" stroke="currentColor" strokeWidth="2"/></svg>
-        </div>
+    <article className="panel group relative flex min-w-0 flex-col overflow-hidden transition-colors hover:border-accent focus-within:border-accent">
+      {report.photo_url && (
+        <img src={assetUrl(report.photo_url)} alt={report.title} className="aspect-[2/1] w-full border-b border-line object-cover" loading="lazy" />
       )}
       <div className="flex flex-1 flex-col p-5">
-        <div className="mb-2 flex items-center justify-between">
-          <span className={`inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider ${isLost ? 'text-[#ef4444]' : 'text-[#22c55e]'}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${isLost ? 'bg-[#ef4444]' : 'bg-[#22c55e]'}`} />
-            {report.type}
+        <div className="flex items-center justify-between gap-3">
+          <span aria-hidden="true" className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-wash text-accent [&_svg]:size-[19px]">
+            {categoryIcons.get(report.category) ?? <Package />}
           </span>
-          <span className="rounded-full border border-[#2d3148] px-2 py-0.5 text-xs text-[#64748b]">{report.category}</span>
+          <span className={'status-label ' + typeClass}>
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-current" /> {report.type}
+          </span>
         </div>
-        <h2 className="mb-1 text-base font-semibold leading-snug text-white line-clamp-2">
-          <Link to={`/items/${report.id}`} state={{ fromBrowse: true }} className="text-left hover:text-[#22c55e] transition-colors">
+        <p className="mt-4 text-xs font-medium text-muted">{report.category}</p>
+        <h3 className="mt-1 text-lg leading-snug font-semibold tracking-[-0.02em]">
+          <Link to={'/items/' + report.id} state={{ fromBrowse: true }} className="line-clamp-2 decoration-1 underline-offset-4 after:absolute after:inset-0 group-hover:underline">
             {report.title}
           </Link>
-        </h2>
-        <p className="mb-3 text-xs text-[#64748b] line-clamp-2">{report.description}</p>
-        <div className="mt-auto space-y-1 text-xs text-[#64748b]">
-          <p>📍 {report.location || report.campus_name}</p>
-          <p>🏫 {report.university_name}</p>
-          <p>📅 {report.event_date ? formatDate(report.event_date) : '—'}</p>
-          {report.event_time && <p>🕒 {report.event_time}</p>}
+        </h3>
+        <p className="mt-1.5 mb-4 line-clamp-2 text-sm leading-5 text-muted">{report.description}</p>
+
+        {(location || report.university_name) && (
+          <div className="mt-auto flex items-start gap-2 text-sm text-muted">
+            <MapPin size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+            <div className="min-w-0">
+              {location && <p className="truncate font-medium text-ink">{location}</p>}
+              {report.university_name && <p className="truncate text-xs leading-relaxed">{report.university_name}</p>}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex min-h-8 items-center justify-between gap-2 border-t border-line pt-3 text-xs text-muted">
+          {date ? (
+            <div className="flex items-center gap-1.5">
+              <CalendarDays size={14} aria-hidden="true" />
+              <time dateTime={report.event_date ?? undefined}>{date}</time>
+              {report.event_time && <span>· {report.event_time}</span>}
+            </div>
+          ) : <span />}
+          <ArrowUpRight size={18} className="shrink-0 text-accent" aria-hidden="true" />
         </div>
-        <Link
-          to={`/items/${report.id}`}
-          state={{ fromBrowse: true }}
-          className={`mt-4 w-full rounded-xl py-2 text-sm font-semibold transition-colors ${isLost ? 'border border-[#ef4444]/30 text-[#ef4444] hover:bg-[#ef4444]/10' : 'border border-[#22c55e]/30 text-[#22c55e] hover:bg-[#22c55e]/10'}`}
-        >
-          View Details
-        </Link>
       </div>
     </article>
   )
